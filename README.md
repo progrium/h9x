@@ -117,12 +117,14 @@ What it leaves out, for now:
   ([progrium/hyper9#220](https://github.com/progrium/hyper9/pull/220)). So
   `/mise` and `/app` are `--bind`s of directories under the cwd instead,
   with `c` so they take creates.
-- **Symlinks in host trees** can't point at a target that doesn't exist yet,
-  dangling ones don't show in `readdir`, and an absolute target isn't
-  followed (that one blocks Python, above). So roots are built in memory and
-  tarred out; mise's shims (links to the mise binary, a path only the builder
-  has) stay in `/tmp`; and `PATH` gets the directories that hold the
-  runtimes' executables rather than mise's shims or `.mise-bins` links.
+- **Symlinks in host trees**: dangling ones don't show in `readdir`, and an
+  absolute target is followed as a host path, not the guest's (that blocks
+  Python, above; [linux-symlinks](https://github.com/progrium/hyper9/blob/linux-symlinks/design/linux-symlinks.md)
+  proposes the fix). So roots are built in memory and tarred out (apk lists
+  and removes links as it goes); mise's shims (links to the mise binary, a
+  path only the builder has) stay in `/tmp`; and `PATH` gets the directories
+  that hold the runtimes' executables rather than mise's shims or
+  `.mise-bins` links.
 - **Absolute links in the guest's overlay** resolve in the Linux tree, which
   doesn't have `/mnt/term`, so a cache directory can't be a link to the
   output's `cache/`. h9build sets the package managers' cache variables

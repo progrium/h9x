@@ -1,0 +1,185 @@
+#!/bin/sh
+# h9build: build an app directory into layers that h9 runs.
+#
+#   h9build [-o OUT] APPDIR
+#
+# Railpack detects the app and writes a plan, mise installs the runtimes the
+# plan names, the plan's install and build commands run as written, and Wolfi
+# packages make the base root. Every one of those steps runs inside h9; the
+# host only needs h9, curl, tar, and a POSIX shell. The result is OUT/layers
+# (runtime, deps, app) and OUT/run, which runs the app on h9 from them, over
+# the shared base root in the cache.
+#
+# Environment:
+#   H9             the h9 binary (default: h9 on PATH)
+#   H9_FLAGS       extra flags for every h9 run, such as --backend native
+#   H9BUILD_CACHE  the cache (default: ${XDG_CACHE_HOME:-~/.cache}/h9build)
+#   H9BUILD_BASE_PACKAGES  more Wolfi packages for the base root
+#   HTTPS_PROXY, SSL_CERT_FILE  passed into the guest when set
+set -eu
+
+ALPINE_VERSION=3.22.2
+RAILPACK_VERSION=0.43.0
+WOLFI_REPO=https://packages.wolfi.dev/os
+# The base root every app runs on: glibc, its loader, the C++ runtime most
+# prebuilt runtimes link against, certificates, time zones, busybox for
+# /bin/sh (start commands and npm scripts run through it), and bash, which
+# some of mise's runtimes use for their wrappers (node's npm).
+BASE_PACKAGES="wolfi-baselayout glibc ld-linux libgcc libstdc++ ca-certificates-bundle tzdata busybox bash ${H9BUILD_BASE_PACKAGES:-}"
+# The builder adds what the guest scripts and package managers use.
+BUILDER_PACKAGES="$BASE_PACKAGES jq git"
+
+usage() { echo "usage: h9build [-o OUT] APPDIR" >&2; exit 2; }
+log() { echo "h9build: $*" >&2; }
+die() { log "$*"; exit 1; }
+
+out=
+while getopts o: f; do
+	case $f in
+	o) out=$OPTARG ;;
+	*) usage ;;
+	esac
+done
+shift $((OPTIND - 1))
+[ $# -eq 1 ] || usage
+[ -d "$1" ] || die "$1: not a directory"
+src=$(cd "$1" && pwd)
+out=${out:-$PWD/$(basename "$src").h9}
+here=$(cd "$(dirname "$0")" && pwd)
+H9=${H9:-h9}
+H9_FLAGS=${H9_FLAGS:-}
+cache=${H9BUILD_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/h9build}
+command -v "$H9" >/dev/null || die "no h9 (set H9)"
+
+# h9 runs Linux programs for the host's own architecture.
+case $(uname -m) in
+x86_64 | amd64) arch=x86_64 rparch=x86_64 ;;
+arm64 | aarch64) arch=aarch64 rparch=arm64 ;;
+*) die "unsupported architecture $(uname -m)" ;;
+esac
+
+sha() { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi | cut -c1-16; }
+
+# h9 with the proxy settings, if any, passed in. The guest sees the CA bundle
+# at /mnt/term/cwd/.ca.pem, so each run's cwd gets a copy.
+h9run() {
+	cwd=$1
+	shift
+	set -- --cwd "$cwd" "$@"
+	if [ -n "${HTTPS_PROXY:-${https_proxy:-}}" ]; then
+		p=${HTTPS_PROXY:-$https_proxy}
+		set -- --env "HTTPS_PROXY=$p" --env "https_proxy=$p" "$@"
+	fi
+	if [ -n "${SSL_CERT_FILE:-}" ]; then
+		cp "$SSL_CERT_FILE" "$cwd/.ca.pem"
+		c=/mnt/term/cwd/.ca.pem
+		set -- --env "SSL_CERT_FILE=$c" --env "NODE_EXTRA_CA_CERTS=$c" --env "GIT_SSL_CAINFO=$c" "$@"
+	fi
+	# shellcheck disable=SC2086
+	"$H9" $H9_FLAGS "$@"
+}
+
+# fetch URL FILE: download once into the cache.
+fetch() {
+	[ -s "$2" ] && return 0
+	log "fetching $1"
+	mkdir -p "$(dirname "$2")"
+	curl -fsSL -o "$2.tmp" "$1" && mv "$2.tmp" "$2"
+}
+
+# The bootstrap: Alpine's minirootfs, whose apk installs Wolfi packages into
+# a root in the guest's memory, and Railpack. Both are static or self-contained,
+# so nothing here depends on the host's OS.
+boot=$cache/bootstrap/alpine-$ALPINE_VERSION-$arch
+if [ ! -d "$boot/etc" ]; then
+	fetch "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/releases/$arch/alpine-minirootfs-$ALPINE_VERSION-$arch.tar.gz" "$cache/dl/alpine-$ALPINE_VERSION-$arch.tgz"
+	mkdir -p "$boot.tmp"
+	tar -xzf "$cache/dl/alpine-$ALPINE_VERSION-$arch.tgz" -C "$boot.tmp"
+	mv "$boot.tmp" "$boot"
+fi
+fetch "$WOLFI_REPO/wolfi-signing.rsa.pub" "$cache/bootstrap/wolfi-signing.rsa.pub"
+tools=$cache/tools
+if [ ! -x "$tools/railpack" ]; then
+	fetch "https://github.com/railwayapp/railpack/releases/download/v$RAILPACK_VERSION/railpack-v$RAILPACK_VERSION-$rparch-unknown-linux-musl.tar.gz" "$cache/dl/railpack-$RAILPACK_VERSION-$rparch.tgz"
+	mkdir -p "$tools"
+	tar -xzf "$cache/dl/railpack-$RAILPACK_VERSION-$rparch.tgz" -C "$tools" railpack
+fi
+
+# root NAME PACKAGES...: a Wolfi root with those packages, made once per
+# package set; prints its directory.
+root() {
+	name=$1
+	shift
+	key=$(echo "$arch $WOLFI_REPO $*" | sha)
+	dir=$cache/roots/$name-$key
+	if [ ! -d "$dir/usr" ]; then
+		log "making the $name root ($*)"
+		work=$cache/roots/.work-$name-$key
+		mkdir -p "$work"
+		cp "$cache/bootstrap/wolfi-signing.rsa.pub" "$here/guest/roots.sh" "$work/"
+		h9run "$work" --dir "$boot:#L" --net outbound \
+			/bin/sh /mnt/term/cwd/roots.sh "$arch" "$WOLFI_REPO" "$@" >&2
+		mkdir -p "$dir.tmp"
+		tar -xf "$work/root.tar" -C "$dir.tmp"
+		# apk's scripts can't run (they chroot), so do busybox's install
+		# here: a link for each applet that no package provides.
+		for a in $(h9run "$work" --dir "$dir.tmp:#L" /usr/bin/busybox --list); do
+			[ -e "$dir.tmp/usr/bin/$a" ] || [ -L "$dir.tmp/usr/bin/$a" ] || ln -s busybox "$dir.tmp/usr/bin/$a"
+		done
+		# Mount points: binds need their destination to exist, and stack
+		# members rooted below the top need their parent.
+		mkdir -p "$dir.tmp/app" "$dir.tmp/mise" "$dir.tmp/h9build/src" "$dir.tmp/h9build/tools" "$dir.tmp/h9build/guest"
+		rm -rf "$work"
+		mv "$dir.tmp" "$dir"
+	fi
+	echo "$dir"
+}
+
+base=$(root base $BASE_PACKAGES)
+builder=$(root builder $BUILDER_PACKAGES)
+
+# The output, from scratch each time; the per-app caches survive.
+mkdir -p "$out"
+rm -rf "$out/layers" "$out/layers.txt" "$out/plan.json" "$out/env" "$out/run"
+mkdir -p "$out/layers/runtime/mise" "$out/layers/app/app" "$out/layers/deps" "$out/cache"
+
+guest() {
+	h9run "$out" --dir "$builder:#L" --dir "$tools:#L/h9build/tools" \
+		--dir "$here/guest:#L/h9build/guest" --dir "$src:#L/h9build/src" \
+		--net outbound --env HOME=/root "$@"
+}
+
+log "planning"
+guest /bin/sh /h9build/guest/plan.sh
+# Railpack downloads the mise it pins on its first run; keep it for the next.
+for m in "$out"/cache/mise-bin/mise-*; do
+	[ -e "$m" ] || continue
+	[ -e "$tools/$(basename "$m")" ] || mv "$m" "$tools/"
+done
+
+log "building"
+# Plain binds of host directories, not stack members, so renames across
+# directories in them are the host's; c allows creates in them.
+guest --bind /mnt/term/cwd/layers/runtime/mise:#L/mise:c --bind /mnt/term/cwd/layers/app/app:#L/app:c \
+	/bin/sh /h9build/guest/build.sh
+
+# OUT/run: the app on h9, from the layers, over the base root. The start
+# command comes from the plan, in $H9BUILD_START; arguments replace it.
+q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+{
+	echo '#!/bin/sh'
+	echo '# Generated by h9build: runs the app on h9 from its layers. Arguments replace the start command.'
+	echo 'here=$(cd "$(dirname "$0")" && pwd)'
+	echo '# shellcheck disable=SC2086'
+	printf 'exec "${H9:-h9}" ${H9_FLAGS:-} --dir %s' "$(q "$base:#L")"
+	while IFS= read -r l; do printf ' --dir "$here/layers/%s:#L"' "$l"; done <"$out/layers.txt"
+	printf ' --net enable --env HOME=/root'
+	while IFS= read -r kv; do printf ' --env %s' "$(q "$kv")"; done <"$out/env"
+	printf ' /bin/sh -c %s sh "$@"\n' "$(q 'cd /app && if [ $# -gt 0 ]; then exec "$@"; fi; exec sh -c "$H9BUILD_START"')"
+} >"$out/run"
+chmod +x "$out/run"
+
+log "done: $out (run it with $out/run)"
+set -- "$base"
+while IFS= read -r l; do set -- "$@" "$out/layers/$l"; done <"$out/layers.txt"
+du -sh "$@" | sed "s|$cache|\$cache|; s|$out/||" >&2

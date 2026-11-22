@@ -70,11 +70,6 @@ EOF
 		export MISE_CACHE_DIR=$W/cache/mise MISE_SHIMS_DIR=/tmp/mise-shims MISE_YES=1
 		;;
 	esac
-	# A venv's python is a link to the runtime by absolute path, and h9
-	# can't follow an absolute link in a host directory such as /app,
-	# so uv can't start the venv's interpreter to compile bytecode. The
-	# app still runs: in the run's #L stack, absolute links resolve.
-	[ -n "${UV_COMPILE_BYTECODE:-}" ] && export UV_COMPILE_BYTECODE=0
 	# A step that takes the local source gets all of it, less the excludes.
 	if echo "$step" | jq -e '[.inputs[]? | select(.local == true)] | length > 0' >/dev/null; then
 		source_tar | tar -C /app -xf -

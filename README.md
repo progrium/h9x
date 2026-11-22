@@ -72,9 +72,15 @@ downloads and about a minute to make the two roots):
 
 | Example | Build | Layers run | Run |
 | --- | --- | --- | --- |
-| `node-lts-npm-native-deps` (bcrypt, better-sqlite3, canvas, sharp) | 43 s | base 22 MB, runtime 208 MB, deps 74 MB, app 60 KB | prints its test's expected output, 1.4 s |
-| `go-mod` | 53 s | base 22 MB, app 2.1 MB (no runtime: the plan doesn't deploy Go) | prints its test's expected output, 40 ms |
-| `python-uv` | fails | | see below |
+| `node-lts-npm-native-deps` (bcrypt, better-sqlite3, canvas, sharp) | 40 s | base 22 MB, runtime 208 MB, deps 74 MB, app 60 KB | prints its test's expected output, 1.4 s |
+| `go-mod` | 40 s | base 22 MB, app 2.1 MB (no runtime: the plan doesn't deploy Go) | prints its test's expected output, 40 ms |
+| `python-uv` (Flask on gunicorn) | 25 s | base 22 MB, runtime 126 MB, deps 6.9 MB (the venv), app 44 KB | prints its test's expected output, and `/` answers "Hello from Python Flask!" |
+
+The venv is in the deps layer and its `python` is an absolute link into the
+runtime layer (`/mise/installs/python/...`): that resolves because h9 follows
+a Linux program's links from its root
+([linux-symlinks](https://github.com/progrium/hyper9/blob/main/design/linux-symlinks.md)),
+in `main` from `7ded875`. Python needs an h9 at least that new.
 
 Not tried yet: arm64 and macOS, the other languages Railpack knows, and apps
 that need build tools (compilers, headers) for native code.
@@ -84,16 +90,7 @@ normal machine doesn't need: a Railpack built with a patch that passes the
 proxy settings through to the mise it runs (the release clears them), and
 `H9_FLAGS="--env MISE_GITHUB_ATTESTATIONS=false"`, as the proxy refused the
 GitHub API calls that mise makes to check uv's attestations. The h9 was built
-from `d625e70` with the fix in
-[progrium/hyper9#220](https://github.com/progrium/hyper9/pull/220), though
-h9build doesn't depend on it.
-
-**Python with uv doesn't build yet.** A venv's `python` is a link to the
-runtime by absolute path (`/mise/installs/python/...`), and h9 can't follow an
-absolute link in a host directory: uv can't start the venv's interpreter, which
-it does to compile bytecode and again in the build step. Under `#L` stack
-members, where absolute links resolve inside the stack, it would, but those
-can't take the renames package managers make (see below).
+from hyper9's `main` at `8b1764f`.
 
 What it leaves out, for now:
 
@@ -117,14 +114,14 @@ What it leaves out, for now:
   ([progrium/hyper9#220](https://github.com/progrium/hyper9/pull/220)). So
   `/mise` and `/app` are `--bind`s of directories under the cwd instead,
   with `c` so they take creates.
-- **Symlinks in host trees**: dangling ones don't show in `readdir`, and an
-  absolute target is followed as a host path, not the guest's (that blocks
-  Python, above; [linux-symlinks](https://github.com/progrium/hyper9/blob/linux-symlinks/design/linux-symlinks.md)
-  proposes the fix). So roots are built in memory and tarred out (apk lists
-  and removes links as it goes); mise's shims (links to the mise binary, a
-  path only the builder has) stay in `/tmp`; and `PATH` gets the directories
-  that hold the runtimes' executables rather than mise's shims or
-  `.mise-bins` links.
+- **Symlinks in host trees**, before
+  [linux-symlinks](https://github.com/progrium/hyper9/blob/main/design/linux-symlinks.md):
+  dangling ones didn't show in `readdir`, and an absolute target was followed
+  as a host path. h9build still builds roots in memory and tars them out,
+  keeps mise's shims in `/tmp`, and puts the directories that hold the
+  runtimes' executables on `PATH` rather than mise's shims or `.mise-bins`
+  links. With linux-symlinks those may no longer be needed; they haven't been
+  tried without.
 - **Absolute links in the guest's overlay** resolve in the Linux tree, which
   doesn't have `/mnt/term`, so a cache directory can't be a link to the
   output's `cache/`. h9build sets the package managers' cache variables

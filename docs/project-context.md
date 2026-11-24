@@ -27,11 +27,12 @@ npm, PyPI, and crates.io for the name before a first release.
 
 ## Where things are
 
-- `h9x` is the host script (about 420 lines of POSIX sh): bootstrap,
+- `h9x` is the host script (about 430 lines of POSIX sh): bootstrap,
   roots, plan, layers, run.
 - `guest/roots.sh`, `guest/plan.sh`, and `guest/build.sh` run inside h9
   machines.
-- `README.md` describes how it works and what does and doesn't build.
+- `README.md` describes how it works, what it makes, and what does and doesn't
+  build.
 - `docs/design.md` is the CLI and library design, exported from the live
   design doc (https://claude.ai/artifact/ArF6sxaq1syi7VmiSahJXE).
 - `docs/benchmarks.md` has the comparisons with Railpack on Docker and with
@@ -82,7 +83,7 @@ h9x needs a recent h9 built from progrium/hyper9 main. In particular:
 - Against Railpack on Docker: faster on no-change rebuilds, on a second app
   sharing runtimes, and 37 to 69% smaller; slower cold for Go and C++, and on
   small-change rebuilds. Cold builds are limited by h9's file-creation,
-  threading and per-call policy-check costs.
+  threading, and per-call policy-check costs.
 
 ## Next steps
 

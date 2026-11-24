@@ -11,15 +11,15 @@
 # OUT/run, which runs the app on h9 from them over the base root in the cache.
 #
 # Environment:
-#   H9             the h9 binary (default: h9 on PATH)
-#   H9_FLAGS       extra flags for every h9 run, such as --backend native
-#   H9X_CACHE  the cache (default: ${XDG_CACHE_HOME:-~/.cache}/h9x)
-#   H9X_BASE_PACKAGES  more Wolfi packages for the base root
-#   H9X_BUILD_PACKAGES more Wolfi packages for the builder root
-#   H9X_RAILPACK  a Railpack binary to use instead of the release
-#   H9X_MEMORY  guest memory for the build machines (default 4G)
-#   H9X_RUBY_COMPILE=1  build Ruby from source rather than use mise's precompiled one
-#   H9X_REPLAN=1  run Railpack's planner even if the source hasn't changed
+#   H9                   the h9 binary (default: h9 on PATH)
+#   H9_FLAGS             extra flags for every h9 run, such as --backend native
+#   H9X_CACHE            the cache (default: ${XDG_CACHE_HOME:-~/.cache}/h9x)
+#   H9X_BASE_PACKAGES    more Wolfi packages for the base root
+#   H9X_BUILD_PACKAGES   more Wolfi packages for the builder root
+#   H9X_RAILPACK         a Railpack binary to use instead of the release
+#   H9X_MEMORY           guest memory for the build machines (default 4G)
+#   H9X_RUBY_COMPILE=1   build Ruby from source rather than use mise's precompiled one
+#   H9X_REPLAN=1         run Railpack's planner even if the source hasn't changed
 #   HTTPS_PROXY, SSL_CERT_FILE  passed into the guest when set
 set -eu
 

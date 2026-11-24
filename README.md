@@ -6,9 +6,13 @@ rather than a builder of our own.
 
 ```sh
 h9x -o ./myapp.h9 ./myapp   # detect, install runtimes and deps, build
-./myapp.h9/run                  # run it on h9
-./myapp.h9/run node -v          # or anything else in it
+./myapp.h9/run              # run it on h9
+./myapp.h9/run node -v      # or anything else in it
 ```
+
+`h9x [-o OUT] APPDIR` is the whole interface today. `OUT` defaults to
+`APPDIR`'s name plus `.h9`, in the current directory. Where it's headed, a CLI
+with `run`, `shell`, `export`, and more, is in [docs/design.md](docs/design.md).
 
 | Job | Done by |
 | --- | --- |
@@ -21,7 +25,8 @@ h9x -o ./myapp.h9 ./myapp   # detect, install runtimes and deps, build
 
 The host needs only h9, `curl`, `tar`, and a POSIX shell. Nothing runs on the
 host's own OS: Railpack, mise, apk, and the package managers all run inside h9
-machines, so the same script works on macOS and Linux.
+machines, so the same script should work on macOS and Linux. Only x86\_64
+Linux has been tried so far.
 
 ## What it makes
 
@@ -33,6 +38,7 @@ myapp.h9/
   layers/*.key                 each layer's inputs, hashed; a layer whose key is unchanged is kept
   plan.json                    Railpack's plan
   plan.key                     the source's files, Railpack, and plan.sh, hashed; a plan whose key is unchanged is kept
+  steps.txt, keys.txt, ...     what guest/plan.sh read from the plan, in plain text for the host side, kept with it
   env                          the run environment: PATH, the plan's variables, the start command
   layers.txt                   the layers the run stacks: those holding something the plan deploys
   run                          h9 with the layers stacked on #L over the base root
@@ -86,7 +92,7 @@ one for each set of tools and versions, in `$cache/runtimes`.
 6. **Caching.** A layer's key hashes its steps and the source files they copy
    in, chained with the keys below it. When it matches the last build's, the
    layer is kept, so changing the app's code rebuilds only the app layer, and
-   a build with nothing changed takes a few seconds. The runtime layer is
+   a build with nothing changed takes about half a second. The runtime layer is
    kept in the cache rather than the output, under a key of the builder root
    and the plan's runtime steps: the mise config with Railpack's resolved
    versions, and any `mise.toml` the steps copy in, but not idiomatic version
@@ -108,7 +114,8 @@ one for each set of tools and versions, in `$cache/runtimes`.
 
 Tried on x86\_64 Linux with h9's native backend (`H9_FLAGS=--backend native`)
 on Railpack's own example apps. The build times are with the roots and
-downloads in the cache; *rebuilt* is a second build with nothing changed.
+downloads in the cache; *rebuilt* is a second build with nothing changed,
+timed before the plan cache and shared runtime layers (see below).
 
 | Example | Build | Rebuilt | Layers run | Run |
 | --- | --- | --- | --- | --- |
@@ -146,7 +153,11 @@ What doesn't build yet, and why:
 
 Also seen: uv's bytecode compiling (`UV_COMPILE_BYTECODE=1`, which Railpack's
 Python plans set) now and then panics with "failed to wake I/O driver: Bad
-file descriptor", or hangs, in h9. A rebuild usually gets past it.
+file descriptor", or hangs, in h9. A rebuild usually gets past it. The hang is
+[progrium/hyper9#276](https://github.com/progrium/hyper9/issues/276), half
+fixed by [#280](https://github.com/progrium/hyper9/pull/280); the other half,
+and the panic, are [#283](https://github.com/progrium/hyper9/pull/283), which
+is still open.
 
 Erlang comes from Hex's prebuilt OTP for Ubuntu 24.04 (builds.hex.pm), put
 where mise would install it, so mise takes it as installed and installs
@@ -245,3 +256,12 @@ after the build.
 h9x was called h9build. The `H9BUILD_*` variables are now `H9X_*`, and h9x
 warns when it sees an old one. It doesn't reuse h9build's cache at
 `~/.cache/h9build`, which can be deleted.
+
+## Docs
+
+- [docs/design.md](docs/design.md): the design for h9x as a standalone CLI
+  and library, with the gaps between it and this script.
+- [docs/benchmarks.md](docs/benchmarks.md): h9x against Railpack on Docker
+  and against hand-written Dockerfiles.
+- [docs/project-context.md](docs/project-context.md): a short brief for
+  anyone picking the project up.

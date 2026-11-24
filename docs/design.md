@@ -23,7 +23,7 @@ The main recommendations:
 | 1 | build9 | Short, reads as a 9front-family tool, and works as a library name (`build9.build(...)`). It's not tied to h9's name if h9 is renamed. | Says "build" while the pitch is "run". That's fine: `docker build` and `docker run` coexist. | None in a quick search |
 | 2 | h9x | `h9x github.com/foo/bar` reads like `npx`, and the run story is the headline. | Cryptic on its own. Better as an alias of `build9 run` than as the project name. | None in a quick search |
 | 3 | h9build | Descriptive, and it was the name it incubated under. | Long to type, and ties the tool to h9's brand. | None |
-| 4 | `h9 build` (a subcommand) | No new name. | h9 is a flags-only runtime, and folding Railpack, mise and OCI export into it would bloat it. | n/a |
+| 4 | `h9 build` (a subcommand) | No new name. | h9 is a flags-only runtime, and folding Railpack, mise, and OCI export into it would bloat it. | n/a |
 
 Ruled out: **run9** ([breezewish/run9-cli](https://pkg.go.dev/github.com/breezewish/run9-cli) exists), **anyrun** (a popular Wayland launcher, [anyrun-org/anyrun](https://awesome.ecosyste.ms/projects/github.com%2Fanyrun-org%2Fanyrun)), **hatch** (Python's packaging tool), and **layup** (too generic to own).
 
@@ -33,7 +33,7 @@ The top three share one engine (plan, build layers, run them in an h9 sandbox), 
 
 | Rank | Use case | Who | Why h9x wins | Readiness today |
 | --- | --- | --- | --- | --- |
-| 1 | Run any repo: `h9x run github.com/foo/bar` | Developers trying a project, people following a README | No Docker, daemon, root, or toolchain install. Works the same on a Mac and Linux. A second app on the same runtimes skips installing them. | Close. Local dirs work, but there's no remote source, and Rust, Zig, .NET and Elixir fail (PR 20). |
+| 1 | Run any repo: `h9x run github.com/foo/bar` | Developers trying a project, people following a README | No Docker, daemon, root, or toolchain install. Should work the same on a Mac and Linux, though only x86\_64 Linux is tried. A second app on the same runtimes skips installing them. | Close. Local dirs work, but there's no remote source, and older Ruby, PHP, and Java don't build yet. |
 | 2 | Dev shells: `h9x shell` | Contributors, onboarding | The project's exact toolchain from the same cached layers as the build. It's a devcontainer without Docker Desktop. | Not built. The layers exist, so it's mostly a new run mode. |
 | 3 | Agent and untrusted-code sandbox | AI coding agents, CI on fork PRs, code review | A per-phase policy (no host files, registry-only network, limits, timeouts) that's printable and diffable. Machine-readable events. | The engine is there, but the h9 sandbox isn't audited and builds have open outbound network. |
 | 4 | OCI export: `h9x export` | CI, teams on Kubernetes or a PaaS | A daemonless buildpacks alternative whose images are 37 to 69% smaller than Railpack's on Docker. | Layers are already OCI layers. It needs a config, manifest, gzip, and push. |
@@ -126,7 +126,7 @@ h9x cache push s3://bucket/h9x   # share layers by key
 h9x cache pull s3://bucket/h9x
 ```
 
-Two helpers round it out: `h9x doctor` checks h9, its backends and the network (today's proxy pain), and `h9x verify` rebuilds from the lockfile and diffs the layer digests.
+Two helpers round it out: `h9x doctor` checks h9, its backends, and the network (today's proxy pain), and `h9x verify` rebuilds from the lockfile and diffs the layer digests.
 
 ## Config and overrides
 
@@ -239,19 +239,19 @@ Ship one static binary per OS and architecture, with h9 linked in and the guest 
 
 ## Gaps against today's scripts
 
-Today h9x is a 379-line POSIX shell script plus three guest scripts, with one command, `h9x [-o OUT] APPDIR`. The engine is sound: plan caching, shared runtime layers, and pruning all work. What's missing is mostly the surface around it, plus a few h9 bugs.
+Today h9x is a POSIX shell script of about 430 lines plus three guest scripts, with one command, `h9x [-o OUT] APPDIR`. The engine is sound: plan caching, shared runtime layers, and pruning all work. What's missing is mostly the surface around it, plus a few h9 bugs.
 
 | Gap | Blocks | Owner |
 | --- | --- | --- |
-| Rust, Zig, and .NET fail inside h9 (I/O error, unreachable, hang). Elixir and old Ruby build too slowly from source. | run any repo | h9, and PR 20 |
+| Older Ruby versions need a source build, which hung in h9 | run any repo | h9 |
 | Cold builds are slower than Docker, because of h9's file-creation and threading costs | run any repo, CI | h9 (Jeff investigating) |
-| uv's bytecode compile sometimes panics or hangs | Python | h9 |
+| uv's bytecode compile sometimes panics or hangs | Python | h9 (progrium/hyper9#283) |
 | h9's sandbox isn't audited | the untrusted pitch | h9 |
 | Build steps have open outbound network | agent sandbox | h9x: derive `netallow` |
 | Only local directories, no git or tarball sources | run any repo | h9x |
 | No subcommands, `shell`, `plan` command, or `--json` events | dev shells, agents | h9x |
 | Config is environment variables only, and there's no lockfile. Wolfi versions float. | reproducibility | h9x |
-| Layers aren't deterministic tars (mtimes, ordering), and there's no image config, manifest or push | export, verify | h9x |
+| Layers aren't deterministic tars (mtimes, ordering), and there's no image config, manifest, or push | export, verify | h9x |
 | The base root lives only in the cache, so the output isn't self-contained | pack, export | h9x |
 | No cache pruning or sharing. Unused runtimes stay forever. | cache | h9x |
 | Every source file is hashed on each build | large repos | h9x: hash by mtime and size first |
@@ -266,9 +266,9 @@ Try the command surface in shell first, where it's cheap to change, and port to 
 
 1. **Surface, in shell.** Subcommands `run`, `build`, `shell`, and `plan`, git and tarball sources, `h9x.toml`, and `--json` events. Done when `h9x run <git url>` works for every Railpack example that builds today.
 2. **Tighter builds.** Registry allowlists, secrets by name, the lockfile with Wolfi versions, and deterministic layer tars. Done when builds pass with `--net=registries` and `verify` reproduces a layer digest.
-3. **Outputs.** `export` (OCI tarball and push), `pack`, and `cache` prune, push and pull.
+3. **Outputs.** `export` (OCI tarball and push), `pack`, and `cache` prune, push, and pull.
 4. **Zig port.** The library on h9's `Machine`, one static binary, the C ABI, and Linux arm64 and macOS releases.
-5. **Untrusted-code launch.** Gated on the h9 sandbox audit, the h9 bugs behind Rust, Zig, and .NET, and cold builds near Railpack's times.
+5. **Untrusted-code launch.** Gated on the h9 sandbox audit, the h9 bugs behind any failing languages, and cold builds near Railpack's times.
 
 Open questions:
 

@@ -5,8 +5,8 @@ KVM, so h9 ran with `--backend native`, behind a TLS-intercepting proxy. These
 are the "v2" numbers, taken after the plan cache and shared runtime layers
 (progrium/scratch#25) landed. The harness (`bench.sh`, `all.sh`,
 `report.py`, the hand-written Dockerfiles, and the Railpack image rebuilds the
-proxy needed) isn't in this repo yet; it was kept with the files of the project h9x
-incubated in (progrium/scratch, where it was h9build) as `h9build-vs-docker/`.
+proxy needed) isn't in this repo yet. It was kept as `h9build-vs-docker/` with
+the files of the project h9x incubated in, where it was called h9build.
 
 There are two separate comparisons:
 

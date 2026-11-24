@@ -1,30 +1,30 @@
 #!/bin/sh
-# build.sh LAYER: run by h9build in the builder root, to build one layer of
+# build.sh LAYER: run by h9x in the builder root, to build one layer of
 # the app (runtime, deps, or app) from the steps of Railpack's plan that
 # steps.txt assigns it, in order, as Railpack's BuildKit backend would.
 #
-# h9build stacks the layers below LAYER over the builder root, and LAYER's
+# h9x stacks the layers below LAYER over the builder root, and LAYER's
 # directory on top as its up layer, so whatever the steps change anywhere in
 # the root lands there, as a layer, and the trees below aren't touched. /tmp
 # is a tree in memory, so it doesn't.
 #
 # The earlier layers' steps aren't run again, but their variables and PATH
 # entries carry on, as a BuildKit state's environment does. apt steps aren't
-# run either: h9build installs Wolfi packages for them into the roots.
+# run either: h9x installs Wolfi packages for them into the roots.
 #
 # build.sh env runs no step, and writes the run environment to env.
 set -eu
 W=/mnt/term/cwd
 P=$W/plan.json
 layer=$1
-log() { echo "h9build: $*" >&2; }
+log() { echo "h9x: $*" >&2; }
 
 # mise, at the version Railpack pins (its builder image's tag), on PATH as
 # Railpack's builder image has it, but as a link in /tmp to the tools rather
 # than a copy in the layer.
 v=$(jq -r '[.steps[].inputs[]?.image // empty | capture("mise-(?<v>[0-9.]+)").v][0] // empty' "$P")
-mise=/h9build/tools/mise-$v
-[ -n "$v" ] && [ -x "$mise" ] || mise=$(ls /h9build/tools/mise-* 2>/dev/null | tail -1)
+mise=/h9x/tools/mise-$v
+[ -n "$v" ] && [ -x "$mise" ] || mise=$(ls /h9x/tools/mise-* 2>/dev/null | tail -1)
 [ -n "$mise" ] || { log "no mise in the tools; did plan.sh run?"; exit 1; }
 mkdir -p /tmp/bin
 ln -sf "$mise" /tmp/bin/mise
@@ -49,7 +49,7 @@ caches() {
 # matches nothing is skipped (Railpack writes optional ones as "Cargo.lock*").
 copy() {
 	(
-		cd "$H9BUILD_SRC"
+		cd "$H9X_SRC"
 		for f in $1; do
 			[ -e "$f" ] || continue
 			case $2 in
@@ -71,7 +71,7 @@ source_in() {
 	inc=$1
 	set --
 	for e in $excludes; do set -- "$@" --exclude "./$e"; done
-	(cd "$H9BUILD_SRC" && tar "$@" -cf - "./$inc") | tar -C /app -xf -
+	(cd "$H9X_SRC" && tar "$@" -cf - "./$inc") | tar -C /app -xf -
 }
 
 # The directories that hold mise's runtimes' executables, for PATH in place of
@@ -128,7 +128,7 @@ ubuntu_libcrypto() {
 
 # Erlang from Hex's prebuilt OTP (builds.hex.pm, for Ubuntu 24.04) rather
 # than mise's, which builds it from source with kerl on Linux: minutes
-# natively, and longer than h9build waits under h9. It goes where mise would
+# natively, and longer than h9x waits under h9. It goes where mise would
 # install it, so mise install takes it as installed, and then installs
 # Elixir or Gleam over it. A version Hex doesn't have is left to mise.
 prebuilt_erlang() {
@@ -174,11 +174,11 @@ EOF
 	# builder has, and runtime_path takes their place. Ruby comes
 	# precompiled, as mise offers, rather than built from source by
 	# ruby-build, which takes many minutes (and, under h9, can hang);
-	# H9BUILD_RUBY_COMPILE=1 builds it.
+	# H9X_RUBY_COMPILE=1 builds it.
 	case $name in
 	packages:*)
 		export MISE_CACHE_DIR=$C/mise MISE_SHIMS_DIR=/tmp/mise-shims MISE_YES=1
-		[ "${H9BUILD_RUBY_COMPILE:-}" = 1 ] || export MISE_RUBY_COMPILE=false
+		[ "${H9X_RUBY_COMPILE:-}" = 1 ] || export MISE_RUBY_COMPILE=false
 		;;
 	esac
 	if [ -n "$run$copies" ]; then
@@ -207,7 +207,7 @@ EOF
 				case $cmd in "mise install"*) prebuilt_erlang ;; esac
 				(cd /app && sh -c "$cmd") </dev/null
 			elif echo "$c" | jq -e 'has("image")' >/dev/null; then
-				log "  skipping a copy from $(echo "$c" | jq -r .image): h9build doesn't fetch images"
+				log "  skipping a copy from $(echo "$c" | jq -r .image): h9x doesn't fetch images"
 			elif echo "$c" | jq -e 'has("src")' >/dev/null; then
 				copy "$(echo "$c" | jq -r .src)" "$(echo "$c" | jq -r .dest)"
 			elif echo "$c" | jq -e 'has("name")' >/dev/null; then
@@ -236,11 +236,11 @@ done <"$W/steps.txt"
 	if jq -e '.deploy.variables.DOTNET_ROOT' "$P" >/dev/null; then
 		echo DOTNET_USE_POLLING_FILE_WATCHER=1
 	fi
-	echo "H9BUILD_START=$(jq -r '.deploy.startCommand // "sh"' "$P")"
+	echo "H9X_START=$(jq -r '.deploy.startCommand // "sh"' "$P")"
 	keep=
 	IFS=:
 	for d in $PATH; do
-		case $d in /tmp/* | /h9build/* | /usr/local/bin | /usr/bin | /bin) ;; *) keep=$keep$d: ;; esac
+		case $d in /tmp/* | /h9x/* | /usr/local/bin | /usr/bin | /bin) ;; *) keep=$keep$d: ;; esac
 	done
 	unset IFS
 	echo "PATH=${keep}/usr/local/bin:/usr/bin:/bin"

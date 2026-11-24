@@ -1,7 +1,7 @@
 #!/bin/sh
-# plan.sh: run by h9build in the builder root. Railpack reads the source at
-# $H9BUILD_SRC (/h9build/src/NAME) and writes its build plan to plan.json in
-# the cwd, and this script reads the plan into plain text that h9build's host
+# plan.sh: run by h9x in the builder root. Railpack reads the source at
+# $H9X_SRC (/h9x/src/NAME) and writes its build plan to plan.json in
+# the cwd, and this script reads the plan into plain text that h9x's host
 # side, which has no jq, acts on:
 #
 #   steps.txt        INDEX LAYER NAME: the layer each step builds in
@@ -18,25 +18,25 @@
 # after its build builds it in the app layer.
 #
 # Railpack resolves versions with the mise it pins, which it keeps in
-# /tmp/railpack/mise and downloads if it isn't there. h9build keeps that
+# /tmp/railpack/mise and downloads if it isn't there. h9x keeps that
 # binary in its tools between runs, so put it back first, and save it after.
 set -eu
 W=/mnt/term/cwd
 P=$W/plan.json
 mkdir -p /tmp/railpack/mise "$W/cache/mise-bin"
-for m in /h9build/tools/mise-*; do [ -e "$m" ] && cp "$m" /tmp/railpack/mise/; done
-"$H9BUILD_RAILPACK" plan --out "$P" "$H9BUILD_SRC"
+for m in /h9x/tools/mise-*; do [ -e "$m" ] && cp "$m" /tmp/railpack/mise/; done
+"$H9X_RAILPACK" plan --out "$P" "$H9X_SRC"
 for m in /tmp/railpack/mise/mise-*; do
-	[ -e "/h9build/tools/$(basename "$m")" ] || cp "$m" "$W/cache/mise-bin/"
+	[ -e "/h9x/tools/$(basename "$m")" ] || cp "$m" "$W/cache/mise-bin/"
 done
 # A provider that fails (a version it can't resolve, say) still writes a plan,
 # with no steps: show Railpack's own account of why.
 if ! jq -e '(.steps // []) | length > 0' "$P" >/dev/null; then
-	echo "h9build: Railpack made no build steps:" >&2
-	"$H9BUILD_RAILPACK" info --format json "$H9BUILD_SRC" | jq -r '.logs[]? | "  \(.Level): \(.Msg)"' >&2
+	echo "h9x: Railpack made no build steps:" >&2
+	"$H9X_RAILPACK" info --format json "$H9X_SRC" | jq -r '.logs[]? | "  \(.Level): \(.Msg)"' >&2
 	exit 1
 fi
-jq -r '"h9build: plan: \([.steps[].name] | join(", ")); start: \(.deploy.startCommand // "none")"' "$P" >&2
+jq -r '"h9x: plan: \([.steps[].name] | join(", ")); start: \(.deploy.startCommand // "none")"' "$P" >&2
 
 jq -r '
 	def rank: if startswith("packages:") then 0 elif startswith("install") then 1 else 2 end;
@@ -70,11 +70,11 @@ jq -r --rawfile steps "$W/steps.txt" '
 	| $i.include[]? | "\($l) \(abs) \([$i.exclude[]? | abs] | join(" "))"' "$P" >"$W/deploy.txt"
 
 # Each layer's key: its steps as the plan has them, and the contents of the
-# source files they copy in (and for the app layer, the deploy). h9build chains them, so a layer's key changes
+# source files they copy in (and for the app layer, the deploy). h9x chains them, so a layer's key changes
 # with the ones below it.
 hashfiles() {
 	(
-		cd "$H9BUILD_SRC"
+		cd "$H9X_SRC"
 		# shellcheck disable=SC2086
 		for f in $1; do [ -e "$f" ] && find "$f" -type f -exec sha256sum {} +; done
 	) | awk -v ex="$excl" '
@@ -107,7 +107,7 @@ done >"$W/keys.txt"
 # files those steps copy from the source count too, as a mise.toml can name
 # more tools, except idiomatic version files (.nvmrc, .python-version, a
 # Gemfile): the plan has already resolved the versions they name, and the
-# rest of a Gemfile doesn't change what mise installs. h9build leaves the
+# rest of a Gemfile doesn't change what mise installs. h9x leaves the
 # copies themselves out of the shared layer, and makes them in the deps layer.
 idiomatic=" .nvmrc .node-version .python-version .python-versions .ruby-version Gemfile .go-version .java-version .sdkmanrc .bun-version package.json "
 copies=none

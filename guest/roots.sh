@@ -1,5 +1,5 @@
 #!/bin/sh
-# roots.sh ARCH REPO PACKAGES...: run by h9build in the Alpine bootstrap root,
+# roots.sh ARCH REPO PACKAGES...: run by h9x in the Alpine bootstrap root,
 # with the new root's directory as an up layer at /r. Installs Wolfi packages
 # into it with Alpine's apk.
 #
@@ -8,7 +8,7 @@
 # how Railpack's Debian package names are tried against Wolfi's.
 #
 # --no-scripts because apk runs scripts in a chroot, which h9 doesn't have;
-# h9build makes busybox's applet links itself afterwards.
+# h9x makes busybox's applet links itself afterwards.
 set -eu
 arch=$1 repo=$2
 shift 2
@@ -53,4 +53,4 @@ apk add --no-scripts $pkgs | grep -v '^(' || true
 apk info -e $pkgs >/dev/null || { echo "roots.sh: some packages didn't install" >&2; exit 1; }
 # shadow files are 0640 root: the guest can't read them, and nothing needs them.
 rm -f "$r/etc/shadow" "$r/etc/gshadow"
-echo "$pkgs" >"$r/etc/h9build-packages"
+echo "$pkgs" >"$r/etc/h9x-packages"

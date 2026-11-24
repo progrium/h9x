@@ -1,19 +1,19 @@
-# Benchmarks: h9build vs Railpack on Docker, and vs a Dockerfile
+# Benchmarks: h9x vs Railpack on Docker, and vs a Dockerfile
 
 Measured Nov 2026 in a Claude cloud container: x86\_64 Linux, 4 vCPUs, no
 KVM, so h9 ran with `--backend native`, behind a TLS-intercepting proxy. These
 are the "v2" numbers, taken after the plan cache and shared runtime layers
 (progrium/scratch#25) landed. The harness (`bench.sh`, `all.sh`,
 `report.py`, the hand-written Dockerfiles, and the Railpack image rebuilds the
-proxy needed) isn't in this repo yet; it was kept with the project's files as
-`h9build-vs-docker/`.
+proxy needed) isn't in this repo yet; it was kept with the files of the project h9x
+incubated in (progrium/scratch, where it was h9build) as `h9build-vs-docker/`.
 
 There are two separate comparisons:
 
-1. **h9build vs Railpack on Docker** is like for like. Both take a bare source
+1. **h9x vs Railpack on Docker** is like for like. Both take a bare source
    directory, run the same Railpack plan, and install runtimes with mise.
    Railpack builds through BuildKit (`railpack build`).
-2. **h9build vs a hand-written Dockerfile** is the expert ceiling: an idiomatic
+2. **h9x vs a hand-written Dockerfile** is the expert ceiling: an idiomatic
    multi-stage Dockerfile per app on the official runtime image, with versions
    pinned to what Railpack resolved.
 
@@ -21,10 +21,10 @@ The apps are Railpack's examples. The phases are *cold* (per-app caches gone,
 shared roots and base images kept), *cold, runtime already installed* (another
 app already installed the same runtimes), *no change*, and *small change* (one
 comment line appended to the main source file). Sizes are h9's base root plus
-the run layers vs the image, gzip-compressed. Each cell is h9build vs the
-other, with the ratio; under 1.0× means h9build is faster.
+the run layers vs the image, gzip-compressed. Each cell is h9x vs the
+other, with the ratio; under 1.0× means h9x is faster.
 
-## h9build vs Railpack on Docker
+## h9x vs Railpack on Docker
 
 | App | Cold (s) | Cold, runtime already installed (s) | No change (s) | Small change (s) | Size, compressed (MB) |
 | --- | --- | --- | --- | --- | --- |
@@ -35,7 +35,7 @@ other, with the ratio; under 1.0× means h9build is faster.
 | ruby-latest | 34.4 vs 43.8 (0.8×) | 6.0 vs 43.8 (0.1×) | 0.9 vs 2.6 (0.3×) | 3.2 vs 4.1 (0.8×) | 124.6 vs 197.9 (-37%) |
 | cpp-cmake | 23.5 vs 16.3 (1.4×) | 5.2 vs 16.3 (0.3×) | 0.6 vs 0.7 (0.9×) | 4.9 vs 2.2 (2.3×) | 13.4 vs 43.5 (-69%) |
 
-## h9build vs a hand-written Dockerfile
+## h9x vs a hand-written Dockerfile
 
 | App | Cold (s) | Cold, runtime already installed (s) | No change (s) | Small change (s) | Size, compressed (MB) |
 | --- | --- | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ other, with the ratio; under 1.0× means h9build is faster.
 
 ## What the numbers say
 
-- Against Railpack, h9build wins on no-change rebuilds (about 0.5 to 1 s, from
+- Against Railpack, h9x wins on no-change rebuilds (about 0.5 to 1 s, from
   the kept plan), on a second app that shares runtimes, and on size (37 to 69%
   smaller). It loses on cold Go and C++ builds and on small-change rebuilds,
   where it rebuilds the whole app layer.

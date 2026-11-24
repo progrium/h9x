@@ -1,11 +1,11 @@
-# h9build
+# h9x
 
 A proof of concept: build an app from its source into layers that
 [h9](https://github.com/progrium/hyper9) runs, using tools that already exist
 rather than a builder of our own.
 
 ```sh
-h9build -o ./myapp.h9 ./myapp   # detect, install runtimes and deps, build
+h9x -o ./myapp.h9 ./myapp   # detect, install runtimes and deps, build
 ./myapp.h9/run                  # run it on h9
 ./myapp.h9/run node -v          # or anything else in it
 ```
@@ -48,8 +48,8 @@ one for each set of tools and versions, in `$cache/runtimes`.
 
 ## How it works
 
-1. **Bootstrap.** h9build downloads Alpine's minirootfs and Railpack's static
-   binary once. Alpine's `apk` is the only package manager h9build needs to
+1. **Bootstrap.** h9x downloads Alpine's minirootfs and Railpack's static
+   binary once. Alpine's `apk` is the only package manager h9x needs to
    start: it reads Wolfi's repository just as well.
 2. **Roots.** In an h9 machine on the Alpine root, `apk --root` installs Wolfi
    packages into a root directory in the cache, keyed by the package set,
@@ -66,9 +66,9 @@ one for each set of tools and versions, in `$cache/runtimes`.
    of every source file, Railpack, and `plan.sh`, and Railpack runs again only
    when the key changes, as planning is most of a build with nothing changed.
    A kept plan keeps the versions Railpack resolved, until the source changes
-   or `H9BUILD_REPLAN=1`.
+   or `H9X_REPLAN=1`.
 4. **Packages.** The plan's apt steps name Debian packages for Railpack's
-   Debian images (`libjemalloc2`, `libyaml-dev`, `libatomic1`). h9build maps
+   Debian images (`libjemalloc2`, `libyaml-dev`, `libatomic1`). h9x maps
    them to Wolfi's names, with a table for the common ones and guesses for the
    rest (the name without its version or its `lib`), and adds the build ones
    to the builder root and the runtime ones to the base root.
@@ -136,12 +136,12 @@ is mostly `go build` itself, so it went from 105 s to 67 s.
 
 What doesn't build yet, and why:
 
-- **Ruby, older versions:** h9build has mise use its precompiled Ruby
+- **Ruby, older versions:** h9x has mise use its precompiled Ruby
   (`MISE_RUBY_COMPILE=false`), which mise has for recent versions only.
   `ruby-sinatra` pins 3.1.2, which would be built from source by ruby-build,
-  and that hung in h9 after 25 minutes. `H9BUILD_RUBY_COMPILE=1` tries it.
+  and that hung in h9 after 25 minutes. `H9X_RUBY_COMPILE=1` tries it.
 - **PHP:** Railpack's PHP plans build on FrankenPHP's container image, which
-  h9build doesn't fetch.
+  h9x doesn't fetch.
 - **Java:** not tried: mise's Java versions list didn't download here.
 
 Also seen: uv's bytecode compiling (`UV_COMPILE_BYTECODE=1`, which Railpack's
@@ -154,7 +154,7 @@ Elixir or Gleam over it. mise would build Erlang from source with kerl,
 which takes minutes natively and didn't finish in h9. Hex's `crypto` NIF is
 linked against Ubuntu's libcrypto, which has SM4 (`EVP_sm4_cbc`), and Wolfi's
 leaves SM4 out, so the NIF wouldn't load and Mix couldn't fetch Hex over TLS.
-h9build gives it Ubuntu 24.04's libcrypto in `/usr/lib/x86_64-linux-gnu`, the
+h9x gives it Ubuntu 24.04's libcrypto in `/usr/lib/x86_64-linux-gnu`, the
 first place the NIF's RUNPATH looks and a place nothing else does. That's in
 the runtime layer, and it goes into the app layer when the run doesn't stack
 the runtime, as with a Mix release, which carries Erlang and its `crypto`.
@@ -164,7 +164,7 @@ runtime layer (`/mise/installs/python/...`): that resolves because h9 follows
 a Linux program's links from its root
 ([linux-symlinks](https://github.com/progrium/hyper9/blob/main/design/linux-symlinks.md)).
 
-h9build needs an h9 with up layers
+h9x needs an h9 with up layers
 ([upper-layers](https://github.com/progrium/hyper9/blob/main/design/upper-layers.md)),
 including [progrium/hyper9#254](https://github.com/progrium/hyper9/pull/254), which
 makes a working directory from below a layer see what's changed in it since: the
@@ -183,7 +183,7 @@ Not tried yet: arm64 and macOS.
 These runs were in a sandbox behind an HTTPS proxy, which took two things a
 normal machine doesn't need. The first was a Railpack built with a patch that
 passes the proxy settings through to the mise it runs, as the release clears
-them (`H9BUILD_RAILPACK` names it). The second was
+them (`H9X_RAILPACK` names it). The second was
 `H9_FLAGS="--env MISE_GITHUB_ATTESTATIONS=false --env MISE_AQUA_COSIGN=false
 --env MISE_AQUA_SLSA=false"`, as the proxy refused the GitHub API and
 Sigstore calls that mise makes to check what it downloads. That breaks
@@ -208,11 +208,11 @@ What it leaves out, for now:
 ## What h9 still needs worked around
 
 - **apk's scripts** need `chroot`, which h9 doesn't have, so apk runs with
-  `--no-scripts`, and h9build makes busybox's applet links itself. And since
+  `--no-scripts`, and h9x makes busybox's applet links itself. And since
   Alpine's apk keeps its database in `/lib/apk`, roots.sh makes the root's
   `/lib -> usr/lib` link first, so the database lands in `/usr/lib/apk`.
 - **mise's shims** are links to the mise binary, which only the builder has,
-  and would run every command through mise. h9build puts the runtimes' own
+  and would run every command through mise. h9x puts the runtimes' own
   bin directories on `PATH` instead, and keeps the shims in `/tmp`.
 - **inotify**, which h9 doesn't have, is how .NET watches its config
   files, and ASP.NET fails to start without it. The run sets
@@ -233,11 +233,15 @@ after the build.
 | --- | --- |
 | `H9` | The h9 binary (default `h9` on `PATH`) |
 | `H9_FLAGS` | Extra flags for every h9 run, such as `--backend native` |
-| `H9BUILD_CACHE` | The cache (default `${XDG_CACHE_HOME:-~/.cache}/h9build`) |
-| `H9BUILD_BASE_PACKAGES` | More Wolfi packages for the base root |
-| `H9BUILD_BUILD_PACKAGES` | More Wolfi packages for the builder root |
-| `H9BUILD_MEMORY` | Guest memory for the build machines (default `4G`) |
-| `H9BUILD_RAILPACK` | A Railpack binary to use instead of the release |
-| `H9BUILD_RUBY_COMPILE` | `1` builds Ruby from source rather than using mise's precompiled one |
-| `H9BUILD_REPLAN` | `1` runs Railpack's planner even when the source hasn't changed |
+| `H9X_CACHE` | The cache (default `${XDG_CACHE_HOME:-~/.cache}/h9x`) |
+| `H9X_BASE_PACKAGES` | More Wolfi packages for the base root |
+| `H9X_BUILD_PACKAGES` | More Wolfi packages for the builder root |
+| `H9X_MEMORY` | Guest memory for the build machines (default `4G`) |
+| `H9X_RAILPACK` | A Railpack binary to use instead of the release |
+| `H9X_RUBY_COMPILE` | `1` builds Ruby from source rather than using mise's precompiled one |
+| `H9X_REPLAN` | `1` runs Railpack's planner even when the source hasn't changed |
 | `HTTPS_PROXY`, `SSL_CERT_FILE` | Passed into the guest when set |
+
+h9x was called h9build. The `H9BUILD_*` variables are now `H9X_*`, and h9x
+warns when it sees an old one. It doesn't reuse h9build's cache at
+`~/.cache/h9build`, which can be deleted.

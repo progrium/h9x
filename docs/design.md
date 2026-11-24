@@ -38,7 +38,7 @@ The top three share one engine (plan, build layers, run them in an h9 sandbox), 
 | 2 | Dev shells: `h9x shell` | Contributors, onboarding | The project's exact toolchain from the same cached layers as the build. It's a devcontainer without Docker Desktop. | Not built. The layers exist, so it's mostly a new run mode. |
 | 3 | Agent and untrusted-code sandbox | AI coding agents, CI on fork PRs, code review | A per-phase policy (no host files, registry-only network, limits, timeouts) that's printable and diffable. Machine-readable events. | The engine is there, but the h9 sandbox isn't audited and builds have open outbound network. |
 | 4 | OCI export: `h9x export` | CI, teams on Kubernetes or a PaaS | A daemonless buildpacks alternative whose images are 37 to 69% smaller than Railpack's on Docker. | Layers are already OCI layers. It needs a config, manifest, gzip, and push. |
-| 5 | Single-file packs and executables: `h9x pack` | Shipping CLIs, tools, and demos to people who don't have h9, the browser host | One `.h9a` runs anywhere h9 runs, browser included. With `--exe`, one executable per platform runs with nothing installed, and one machine can make every platform's. | Needs the base root folded in, an `.h9a` writer, and the runner (see pack). |
+| 5 | Single-file packs and executables: `h9x pack` | Shipping CLIs, tools, and demos to people who don't have h9, the browser host | One tar runs anywhere h9 runs, browser included. With `--exe`, one executable per platform runs with nothing installed, and one machine can make every platform's. | Needs the base root folded in, the flattened tar and its index, and the runner (see pack). |
 | 6 | Shared build cache | Teams, CI fleets | Input-keyed layers can move between machines with no BuildKit. | Keys exist. Needs push and pull, and keys that don't depend on the host path. |
 | 7 | Reproducibility checks: `h9x verify` | Release engineers | A pinned plan plus content-keyed layers let you rebuild and diff. | Needs a lockfile and deterministic tar output (mtimes, ordering). |
 | 8 | Embedding as a library | A PaaS, an editor's "run this project" button, uitree's app builder | Plan, build, and run as calls, not shell-outs. | Needs the Zig port (see Library API). |
@@ -54,7 +54,7 @@ Seven subcommands, each taking a SOURCE that defaults to `.`. A SOURCE is a dire
 | `shell` | A shell in the build environment, with the source mounted | Not built |
 | `plan` | Print or explain the plan without building | Inside the build only |
 | `export` | Write or push an OCI image | Not built |
-| `pack` | Write one self-contained `.h9a` file, or an executable for one or more platforms | Not built |
+| `pack` | Write one self-contained tar, or an executable for one or more platforms | Not built |
 | `cache` | List, size, prune, push, and pull cached roots and layers | Not built |
 
 ### run
@@ -112,8 +112,8 @@ The image is the base root as one layer, then the run layers from `layers.txt`, 
 ### pack
 
 ```sh
-h9x pack . -o app.h9a                       # an archive, for h9 or the browser host
-h9 --archive app.h9a
+h9x pack . -o app.tar                       # a tar, for h9 or the browser host
+h9 --archive app.tar:#L sh /.h9x/run
 
 h9x pack . --exe -o app                     # an executable for this machine
 ./app --port 8080                           # runs the start command, with these args
@@ -123,7 +123,7 @@ h9x pack . --target all -o dist/            # every target in the table below
 h9x pack ./app.h9 --target all -o dist/     # from a build directory, without building
 ```
 
-A pack is the base root and run layers flattened into one archive, with the env, start command, and run policy in a header that h9 reads. It's the uitree `pack` story for any app.
+A pack is the base root and run layers flattened into one tar, whiteouts applied, with the env, start command, and run policy in `/.h9x/pack.json` and a `/.h9x/run` script that starts the app with plain h9. It's the uitree `pack` story for any app.
 
 **Executables.** `--exe` and `--target` wrap that archive in an executable: a prebuilt *runner* for the target with the archive appended, so the result runs on a machine with no h9, h9x, or Docker. `--exe` means the host's own target. `--target` takes a comma-separated list of `OS-ARCH` names, or `all`, and writes `dist/app-OS-ARCH` (`.exe` on Windows) for each, named after the source unless `-o` names a file. Making one needs no compiler and no SDK, so any host can make every target's: h9x only builds the layers, writes the archive, and joins it to each runner.
 
@@ -143,9 +143,9 @@ A few rules keep a packed executable predictable:
 | macOS | A segment of its own, `__H9X` with one section `__pack`, added before `__LINKEDIT`, as Node's single-executable applications do | Looks up the section in its own Mach-O header, then reads that range of the file from `_NSGetExecutablePath` |
 | Windows | A PE section, `.h9x`, added after the last section, before any Authenticode certificate | Walks its own section table from `GetModuleHandleW(NULL)`, then reads that range of the file from `GetModuleFileNameW` |
 
-Every target also gets the trailer, so one code path in the runner (and `h9x pack --inspect FILE`) can find the archive in any of them, and the section is what keeps the OS's signature valid. The archive is written uncompressed with an index up front and each file compressed on its own with zstd, so the runner can serve any file without unpacking the rest. That needs `.h9a` version 2: today's format (`tools/webroot.zig` in h9) is a flat run of entries with no index and no compression.
+Every target also gets the trailer, so one code path in the runner (and `h9x pack --inspect FILE`) can find the archive in any of them, and the section is what keeps the OS's signature valid. The archive is a plain, uncompressed tar, so any tar tool can list it and h9's `--archive` mounts it today. Its last entry, `/.h9x/index`, lists every file's offset in the tar, as eStargz's table of contents does, and the trailer points at it, so the runner can open any file with one seek and without reading the rest. h9's `.h9a` isn't used: it was made for the browser host's root and has no index. Leaving the tar uncompressed costs size in the executable, but a download is compressed anyway (the release's `.tar.gz` or `.zip`), and seekable zstd frames can come later if executables on disk are too big.
 
-**Serving the layers.** h9's `--archive` unpacks a whole archive into memory before the program starts, counted against `--memory`. That's fine for a small CLI but too slow and too large for an app with a runtime and `node_modules`, which can be hundreds of megabytes. So h9 needs a mount that serves an indexed archive read-only from a range of a host file, reading and decompressing files as they're opened, with writes going to the overlay above it: `--archive FILE@OFFSET+LENGTH`, or a `Machine.Options` mount kind the runner fills in. Until h9 has it, the runner falls back to `--archive` for packs under a size limit, and above it extracts the layers once into the user cache, keyed by the archive's digest, and mounts them with `--dir`.
+**Serving the layers.** h9's `--archive` unpacks a whole archive into memory before the program starts, counted against `--memory`. That's fine for a small CLI but too slow and too large for an app with a runtime and `node_modules`, which can be hundreds of megabytes. So h9 needs a mount that serves an indexed tar read-only from a range of a host file, reading files as they're opened, with writes going to the overlay above it: `--archive FILE@OFFSET+LENGTH`, or a `Machine.Options` mount kind the runner fills in. Until h9 has it, the runner falls back to `--archive` for packs under a size limit, and above it extracts the layers once into the user cache, keyed by the archive's digest, and mounts them with `--dir`.
 
 **Signing.** Adding the archive changes the executable, so the runner's own signature never survives, and h9x signs the result itself:
 
@@ -171,7 +171,7 @@ Building for the other architecture runs the build steps on h9's emulator, which
 | `windows-amd64` | `x86_64-windows-gnu` | WHP, where the Windows Hypervisor Platform feature is on, or the emulator | Untried by h9x. h9 doesn't make symlinks in a Windows host's overlays, which some package managers do at run time. |
 | `windows-arm64` | `aarch64-windows-gnu` | The emulator: h9's WHP backend runs amd64 only | Untried, and slow until h9 runs arm64 on WHP |
 
-On a host with no usable hypervisor, the runner falls back to the emulator with h9's usual warning. The browser host takes the `.h9a`, not an executable, since a browser can't run either.
+On a host with no usable hypervisor, the runner falls back to the emulator with h9's usual warning. The browser host takes the tar, not an executable, since a browser can't run either.
 
 ### cache
 
@@ -276,7 +276,7 @@ const art  = try builder.build(plan, .{ .out_dir = "bar.h9" });
 var m = try art.machine(.{ .stage = .run, .policy = h9x.Policy.untrusted });
 const status = try m.run(&.{});
 try art.exportOci(file.writer(), .{});
-try art.pack(file.writer(), .{});                        // an .h9a
+try art.pack(file.writer(), .{});                        // a tar, with its index
 try art.pack(exe.writer(), .{
     .target = .{ .os = .macos, .arch = .aarch64 },        // the runner, from the cache or embedded
     .sign = .adhoc,                                       // or .{ .identity = "Developer ID Application: ..." }
@@ -285,7 +285,7 @@ try art.pack(exe.writer(), .{
 
 The main types are `Source` (a directory, git ref, or tarball, with its content hash), `Plan` (Railpack's plan plus the layer split and keys), `Layer` (name, key, digest, path), `Artifact` (the stacked layers, env, and start command), and `Policy` (h9 plan text, so it's printable and diffable).
 
-The runner is a second, much smaller program on the same code: h9's `Machine`, the `.h9a` reader, and the section lookup, with none of `Builder`. Zig makes that cheap. Both programs are one `build.zig` with one cross-compiling release script, the runner's archive mount is a `Machine.Options` mount, and the Mach-O signer is a port of Zig's own. In Go, the runner would still have to be Zig or C to embed h9, so this is one more reason the library is Zig.
+The runner is a second, much smaller program on the same code: h9's `Machine`, the tar index reader, and the section lookup, with none of `Builder`. Zig makes that cheap. Both programs are one `build.zig` with one cross-compiling release script, the runner's archive mount is a `Machine.Options` mount, and the Mach-O signer is a port of Zig's own. In Go, the runner would still have to be Zig or C to embed h9, so this is one more reason the library is Zig.
 
 Other languages get two ways in. The simpler is the output directory and the `--json` event stream, which are a stable contract and enough for a PaaS or an editor. The other is a small C ABI (`h9x_build`, `h9x_run`, `h9x_export`, `h9x_pack`) that takes and returns JSON, so Go, Python, and Node bindings stay thin and don't track Zig types.
 
@@ -315,7 +315,7 @@ Today h9x is a POSIX shell script of about 430 lines plus three guest scripts, w
 | Config is environment variables only, and there's no lockfile. Wolfi versions float. | reproducibility | h9x |
 | Layers aren't deterministic tars (mtimes, ordering), and there's no image config, manifest, or push | export, verify | h9x |
 | The base root lives only in the cache, so the output isn't self-contained | pack, export | h9x |
-| `.h9a` has no index or per-file compression | pack executables | h9 and h9x: `.h9a` version 2 |
+| No flattened tar with an index | pack | h9x |
 | `--archive` unpacks into memory, and can't serve a range of a file | pack executables of any size | h9: an in-file archive mount |
 | No runner, section writer, or Mach-O ad-hoc signer | pack executables | h9x |
 | Layer keys don't include the architecture, and builds have no `--arch` | multi-platform packs | h9x |
@@ -333,8 +333,8 @@ Try the command surface in shell first, where it's cheap to change, and port to 
 
 1. **Surface, in shell.** Subcommands `run`, `build`, `shell`, and `plan`, git and tarball sources, `h9x.toml`, and `--json` events. Done when `h9x run <git url>` works for every Railpack example that builds today.
 2. **Tighter builds.** Registry allowlists, secrets by name, the lockfile with Wolfi versions, and deterministic layer tars. Done when builds pass with `--net=registries` and `verify` reproduces a layer digest.
-3. **Outputs.** `export` (OCI tarball and push), `pack` to `.h9a`, and `cache` prune, push, and pull.
-4. **Zig port.** The library on h9's `Machine`, one static binary, the C ABI, and Linux arm64 and macOS releases. The runner, `.h9a` version 2, the section writers, ad-hoc signing, and `--target` for every target in pack's table that has passed its test pass. Done when `h9x pack --target all` on Linux makes executables that run on each of them.
+3. **Outputs.** `export` (OCI tarball and push), `pack` to a tar, and `cache` prune, push, and pull.
+4. **Zig port.** The library on h9's `Machine`, one static binary, the C ABI, and Linux arm64 and macOS releases. The runner, the section writers, ad-hoc signing, and `--target` for every target in pack's table that has passed its test pass. Done when `h9x pack --target all` on Linux makes executables that run on each of them.
 5. **Untrusted-code launch.** Gated on the h9 sandbox audit, the h9 bugs behind any failing languages, and cold builds near Railpack's times.
 
 Open questions:

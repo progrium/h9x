@@ -121,6 +121,7 @@ h9x pack . --exe -o app                     # an executable for this machine
 h9x pack . --target linux-amd64,macos-arm64,windows-amd64 -o dist/
 h9x pack . --target all -o dist/            # every target in the table below
 h9x pack ./app.h9 --target all -o dist/     # from a build directory, without building
+h9x pack . --exe --compress zstd -o app     # smaller, at some cost to start-up
 ```
 
 A pack is the base root and run layers flattened into one tar, whiteouts applied, with the env, start command, and run policy in `/.h9x/pack.json` and a `/.h9x/run` script that starts the app with plain h9. It's the uitree `pack` story for any app.
@@ -143,9 +144,18 @@ A few rules keep a packed executable predictable:
 | macOS | A segment of its own, `__H9X` with one section `__pack`, added before `__LINKEDIT`, as Node's single-executable applications do | Looks up the section in its own Mach-O header, then reads that range of the file from `_NSGetExecutablePath` |
 | Windows | A PE section, `.h9x`, added after the last section, before any Authenticode certificate | Walks its own section table from `GetModuleHandleW(NULL)`, then reads that range of the file from `GetModuleFileNameW` |
 
-Every target also gets the trailer, so one code path in the runner (and `h9x pack --inspect FILE`) can find the archive in any of them, and the section is what keeps the OS's signature valid. The archive is a plain, uncompressed tar, so any tar tool can list it and h9's `--archive` mounts it today. Its last entry, `/.h9x/index`, lists every file's offset in the tar, as eStargz's table of contents does, and the trailer points at it, so the runner can open any file with one seek and without reading the rest. h9's `.h9a` isn't used: it was made for the browser host's root and has no index. Leaving the tar uncompressed costs size in the executable, but a download is compressed anyway (the release's `.tar.gz` or `.zip`), and seekable zstd frames can come later if executables on disk are too big.
+Every target also gets the trailer, so one code path in the runner (and `h9x pack --inspect FILE`) can find the archive in any of them, and the section is what keeps the OS's signature valid. The archive is a plain, uncompressed tar, so any tar tool can list it and h9's `--archive` mounts it today. Its last entry, `/.h9x/index`, lists every file's offset in the tar, as eStargz's table of contents does, and the trailer points at it, so the runner can open any file with one seek and without reading the rest. h9's `.h9a` isn't used: it was made for the browser host's root and has no index. By default the tar is uncompressed, which `--compress` changes (below).
 
-**Serving the layers.** h9's `--archive` unpacks a whole archive into memory before the program starts, counted against `--memory`. That's fine for a small CLI but too slow and too large for an app with a runtime and `node_modules`, which can be hundreds of megabytes. So h9 needs a mount that serves an indexed tar read-only from a range of a host file, reading files as they're opened, with writes going to the overlay above it: `--archive FILE@OFFSET+LENGTH`, or a `Machine.Options` mount kind the runner fills in. Until h9 has it, the runner falls back to `--archive` for packs under a size limit, and above it extracts the layers once into the user cache, keyed by the archive's digest, and mounts them with `--dir`.
+**Compression.** `--compress` picks how the tar is stored, for a plain pack and an executable alike:
+
+| `--compress` | Stored as | Size | Opening a file | Read by |
+| --- | --- | --- | --- | --- |
+| `none` (the default) | A plain tar | Largest: the layers as they are | One seek and a read | Any tar tool, and h9's `--archive` today |
+| `zstd`, or `zstd:LEVEL` (1 to 19, default 3) | A seekable `.tar.zst`: the same tar, compressed in independent zstd frames, with the index in a frame of its own at the end | Usually a third to a half of `none` for runtimes and `node_modules` (to be measured) | One seek and one frame decompressed, at about 1 GB/s | `zstd -d \| tar -x`, since the frames concatenate into an ordinary zstd stream, and h9 once it reads zstd |
+
+With `zstd`, each frame holds one file's header and data, so the index can point at the frame for any file, as Podman's `zstd:chunked` layers do. Two tweaks keep the ratio up: small files share a frame, up to 64 KB of input, and a big file is split into 1 MB frames, so a read in the middle of it decompresses one frame rather than the whole file. The index records each file's frame, its offset in the frame, and its size, so the runner never scans the tar. zstd rather than brotli or xz, because it decompresses several times faster at a similar ratio, Zig's std has a decoder (`std.compress.zstd`), and the seekable layout already has prior art. `none` stays the default because start-up is the runner's hot path and a download is compressed anyway (the release's `.tar.gz` or `.zip`), so `zstd` is for executables that sit on disk, or ship without an outer archive.
+
+**Serving the layers.** h9's `--archive` unpacks a whole archive into memory before the program starts, counted against `--memory`. That's fine for a small CLI but too slow and too large for an app with a runtime and `node_modules`, which can be hundreds of megabytes. So h9 needs a mount that serves an indexed tar read-only from a range of a host file, reading files as they're opened, decompressing the frame a file is in when the pack uses `zstd`, with writes going to the overlay above it: `--archive FILE@OFFSET+LENGTH`, or a `Machine.Options` mount kind the runner fills in. Until h9 has it, the runner falls back to `--archive` for packs under a size limit, and above it extracts the layers once into the user cache, keyed by the archive's digest, and mounts them with `--dir`.
 
 **Signing.** Adding the archive changes the executable, so the runner's own signature never survives, and h9x signs the result itself:
 
@@ -280,6 +290,7 @@ try art.pack(file.writer(), .{});                        // a tar, with its inde
 try art.pack(exe.writer(), .{
     .target = .{ .os = .macos, .arch = .aarch64 },        // the runner, from the cache or embedded
     .sign = .adhoc,                                       // or .{ .identity = "Developer ID Application: ..." }
+    .compress = .{ .zstd = 3 },                           // or .none, the default
 });
 ```
 
@@ -316,6 +327,7 @@ Today h9x is a POSIX shell script of about 430 lines plus three guest scripts, w
 | Layers aren't deterministic tars (mtimes, ordering), and there's no image config, manifest, or push | export, verify | h9x |
 | The base root lives only in the cache, so the output isn't self-contained | pack, export | h9x |
 | No flattened tar with an index | pack | h9x |
+| No zstd frame writer, and h9's `--archive` reads tar and gzip only | `--compress zstd` | h9x, and h9 for zstd in `--archive` |
 | `--archive` unpacks into memory, and can't serve a range of a file | pack executables of any size | h9: an in-file archive mount |
 | No runner, section writer, or Mach-O ad-hoc signer | pack executables | h9x |
 | Layer keys don't include the architecture, and builds have no `--arch` | multi-platform packs | h9x |
@@ -334,7 +346,7 @@ Try the command surface in shell first, where it's cheap to change, and port to 
 1. **Surface, in shell.** Subcommands `run`, `build`, `shell`, and `plan`, git and tarball sources, `h9x.toml`, and `--json` events. Done when `h9x run <git url>` works for every Railpack example that builds today.
 2. **Tighter builds.** Registry allowlists, secrets by name, the lockfile with Wolfi versions, and deterministic layer tars. Done when builds pass with `--net=registries` and `verify` reproduces a layer digest.
 3. **Outputs.** `export` (OCI tarball and push), `pack` to a tar, and `cache` prune, push, and pull.
-4. **Zig port.** The library on h9's `Machine`, one static binary, the C ABI, and Linux arm64 and macOS releases. The runner, the section writers, ad-hoc signing, and `--target` for every target in pack's table that has passed its test pass. Done when `h9x pack --target all` on Linux makes executables that run on each of them.
+4. **Zig port.** The library on h9's `Machine`, one static binary, the C ABI, and Linux arm64 and macOS releases. The runner, the section writers, ad-hoc signing, `--compress zstd`, and `--target` for every target in pack's table that has passed its test pass. Done when `h9x pack --target all` on Linux makes executables that run on each of them.
 5. **Untrusted-code launch.** Gated on the h9 sandbox audit, the h9 bugs behind any failing languages, and cold builds near Railpack's times.
 
 Open questions:
@@ -347,3 +359,4 @@ Open questions:
 - [ ] Should `--target all` include targets whose app runs only on the emulator (`windows-arm64`, and arm64 hosts with `--guest-arch amd64`), or leave them to be named?
 - [ ] Should one executable carry both architectures' layers, as a macOS universal binary does, or is one file per target simpler for everyone?
 - [ ] Should the runner check for a newer pack, or is updating the app's own job?
+- [ ] Should `--compress zstd` become the default for `--target`, once start-up with it is measured?

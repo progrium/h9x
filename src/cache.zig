@@ -1,5 +1,5 @@
 //! The cache (design/prototype.md, "Cache"): its layout, touching entries
-//! on use, `cache ls`, and `cache prune`. Documented in docs/cache.md.
+//! on use, `cache ls`, and `cache prune`. Documented in spec/cache.md.
 //!
 //! Each kind of entry is a directory under the cache, and each entry is a
 //! file or directory in it: `roots/base-KEY`, `runtimes/KEY`, `dl/FILE`.

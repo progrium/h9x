@@ -16,7 +16,7 @@ Each kind of entry has a directory, and each entry is a file or directory in it.
 | `sources/` | Git and tarball sources, and the file lists of directory sources (below) | |
 | `builds/` | The output directories of remote sources' builds | The source's hash and the plan |
 | `runners/` | `h9x-runner` for targets other than the host's, from h9x's release | The target and h9x's version |
-| `packs/` | Packs that a packed executable has extracted | The archive's digest |
+| `packs/` | Packs that a packed executable has extracted, under `${XDG_CACHE_HOME:-~/.cache}/h9x` whatever `$H9X_CACHE` says, since the runner reads no h9x variables | The pack's seal ([pack.md](pack.md)) |
 
 `sources/` holds three kinds of entry of its own:
 

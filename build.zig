@@ -39,6 +39,12 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "h9", .module = h9_mod },
             .{ .name = "h9x", .module = shared },
+            // h9's CLI reads stdin for the console this way, cancellably.
+            .{ .name = "h9_stdin", .module = b.createModule(.{
+                .root_source_file = h9.path("src/stdin.zig"),
+                .target = target,
+                .optimize = optimize,
+            }) },
         },
     });
     const runner = b.addExecutable(.{ .name = "h9x-runner", .root_module = runner_mod });
@@ -121,6 +127,19 @@ pub fn build(b: *std.Build) void {
         exe_test_mod.addAnonymousImport(f[0], .{ .root_source_file = fixture.getEmittedBin() });
     }
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = exe_test_mod })).step);
+
+    // The real runner joined with a pack and run (src/runner_test.zig).
+    const runner_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/runner_test.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "h9", .module = h9_mod }},
+    });
+    runner_test_mod.addAnonymousImport("h9x_runner", .{ .root_source_file = runner.getEmittedBin() });
+    const runner_test = b.addTest(.{ .root_module = runner_test_mod });
+    macos(b, runner_test, os);
+    // The runner is signed when it's joined, so the test runs it as is.
+    test_step.dependOn(&b.addRunArtifact(runner_test).step);
 }
 
 /// Room after a Mach-O runner's load commands for the two pack adds.

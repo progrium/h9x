@@ -96,7 +96,11 @@ pub const Host = struct {
     }
 };
 
-pub const RunError = h9.Machine.InitError || h9.Machine.RunError || error{OutOfMemory};
+/// h9 doesn't export `Machine.run`'s error set by name, so it's taken from
+/// the function.
+const MachineRunError = @typeInfo(@typeInfo(@TypeOf(h9.Machine.run)).@"fn".return_type.?).error_union.error_set;
+
+pub const RunError = h9.Machine.InitError || MachineRunError || error{OutOfMemory};
 
 /// Starts a machine with `opts` and the host's settings, runs `argv` (a
 /// guest path or name first), and ends the machine. On a setup failure,

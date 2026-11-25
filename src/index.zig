@@ -248,7 +248,7 @@ test "the index is the last entry, and points at each file" {
         .{ "usr/bin/busybox", "#!busybox" },
         .{ "app/server.js", "listen(8080)" },
         .{ "app/we\tird\nname\\", "odd" },
-        .{ "app/" ++ "long/" ** 40 ++ "file", "deep" },
+        .{ "app/" ++ repeat("long/", 40) ++ "file", "deep" },
     };
     try packed_(gpa, testing.io, &out.writer, &files);
     const bytes = out.written();
@@ -311,11 +311,11 @@ test "read finds the index in a file at an offset" {
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     // An executable's image, then the archive, then a trailer.
-    try out.writer.writeAll("\x7fELF" ++ "\x00" ** 1000);
+    try out.writer.writeAll("\x7fELF" ++ repeat("\x00", 1000));
     const start = out.written().len;
     try packed_(gpa, io, &out.writer, &.{.{ "bin/app", "hello" }});
     const len = out.written().len - start;
-    try out.writer.writeAll("H9XPACK\x00" ++ "\x00" ** 24);
+    try out.writer.writeAll("H9XPACK\x00" ++ repeat("\x00", 24));
     try tmp.dir.writeFile(io, .{ .sub_path = "app", .data = out.written() });
 
     const f = try tmp.dir.openFile(io, "app", .{});
@@ -341,4 +341,11 @@ test "a tar without an index is refused" {
     defer arena.deinit();
     try testing.expectError(error.BadIndex, parse(arena.allocator(), "h9x-index 1\nf\t644\t0\t0\ta\n"));
     try testing.expectError(error.BadIndex, parse(arena.allocator(), "h9x-index 2\nend\t0\n"));
+}
+/// `s` `n` times, at comptime.
+fn repeat(comptime s: []const u8, comptime n: usize) *const [s.len * n]u8 {
+    comptime var out: [s.len * n]u8 = undefined;
+    inline for (0..n) |i| @memcpy(out[i * s.len ..][0..s.len], s);
+    const final = out;
+    return &final;
 }

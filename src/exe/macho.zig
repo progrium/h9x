@@ -454,7 +454,7 @@ test "join adds __H9X before __LINKEDIT and signs" {
 
     var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
-    const archive = "the archive" ** 100;
+    const archive = repeat("the archive", 100);
     var ar: std.Io.Reader = .fixed(archive);
     const l = try join(gpa, &aw.writer, img, &ar, archive.len, .{ .identifier = "app" });
     const out = aw.written();
@@ -520,4 +520,12 @@ test "a full header is refused" {
     defer aw.deinit();
     var ar: std.Io.Reader = .fixed("x");
     try std.testing.expectError(error.HeaderFull, join(gpa, &aw.writer, img, &ar, 1, .{ .identifier = "a" }));
+}
+
+/// `s` `n` times, at comptime.
+fn repeat(comptime s: []const u8, comptime n: usize) *const [s.len * n]u8 {
+    comptime var out: [s.len * n]u8 = undefined;
+    inline for (0..n) |i| @memcpy(out[i * s.len ..][0..s.len], s);
+    const final = out;
+    return &final;
 }

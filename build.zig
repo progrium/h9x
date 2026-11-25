@@ -81,16 +81,17 @@ pub fn build(b: *std.Build) void {
         inline for (.{ .{ exe, &install_exe.step }, .{ runner, &install_runner.step } }, 0..) |pair, i| {
             const sign = b.addSystemCommand(&.{ "codesign", "--force", "--sign", "-", "--entitlements" });
             sign.addFileArg(b.path("h9x.entitlements"));
-            sign.addArg(b.getInstallPath(.bin, pair[0].out_filename));
+            sign.addFileArg(b.graph.path(.install_bin, pair[0].out_filename));
             sign.step.dependOn(pair[1]);
             b.getInstallStep().dependOn(&sign.step);
             if (i == 0) ready = &sign.step;
         }
     }
 
-    const run_cmd = b.addSystemCommand(&.{b.getInstallPath(.bin, exe.out_filename)});
+    const run_cmd = std.Build.Step.Run.create(b, "run h9x");
+    run_cmd.addFileArg(b.graph.path(.install_bin, exe.out_filename));
     run_cmd.step.dependOn(ready);
-    if (b.args) |args| run_cmd.addArgs(args);
+    run_cmd.addPassthruArgs();
     b.step("run", "Run h9x").dependOn(&run_cmd.step);
 
     // The unit tests: every module's, through src/main.zig's test block,

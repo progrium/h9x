@@ -65,8 +65,8 @@ pub fn exitFor(err: anyerror) Exit {
 }
 
 fn inSet(comptime Set: type, err: anyerror) bool {
-    inline for (@typeInfo(Set).error_set.?) |e| {
-        if (err == @field(anyerror, e.name)) return true;
+    inline for (@typeInfo(Set).error_set.error_names.?) |name| {
+        if (err == @field(anyerror, name)) return true;
     }
     return false;
 }
@@ -259,8 +259,8 @@ pub fn writeJson(w: *std.Io.Writer, ev: Event) std.Io.Writer.Error!void {
     try writeString(w, @tagName(ev));
     switch (ev) {
         inline else => |payload| {
-            inline for (std.meta.fields(@TypeOf(payload))) |f| {
-                try writeField(w, f.name, @field(payload, f.name));
+            inline for (comptime std.meta.fieldNames(@TypeOf(payload))) |name| {
+                try writeField(w, name, @field(payload, name));
             }
         },
     }
@@ -471,22 +471,21 @@ test "text lines" {
 
 test "every kind and state has a text form" {
     var buf: [512]u8 = undefined;
-    inline for (std.meta.fields(Event)) |f| {
-        const P = f.type;
+    inline for (comptime std.meta.fieldNames(Event), comptime std.meta.fieldTypes(Event)) |f_name, P| {
         if (@hasField(P, "state")) {
             for (std.enums.values(Event.State)) |st| {
                 var w: std.Io.Writer = .fixed(&buf);
                 var p: P = undefined;
-                inline for (std.meta.fields(P)) |pf| {
-                    @field(p, pf.name) = switch (@typeInfo(pf.type)) {
+                inline for (comptime std.meta.fieldNames(P), comptime std.meta.fieldTypes(P)) |pf_name, pf_type| {
+                    @field(p, pf_name) = switch (@typeInfo(pf_type)) {
                         .optional => null,
                         .@"enum" => @enumFromInt(0),
                         else => "x",
                     };
                 }
                 p.state = st;
-                try writeText(&w, @unionInit(Event, f.name, p));
-                try writeJson(&w, @unionInit(Event, f.name, p));
+                try writeText(&w, @unionInit(Event, f_name, p));
+                try writeJson(&w, @unionInit(Event, f_name, p));
             }
         }
     }

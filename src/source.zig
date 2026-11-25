@@ -855,7 +855,7 @@ test hashDir {
     try tmp.dir.setTimestamps(io, "app/package.json", .{ .modify_timestamp = .{ .new = old } });
     const h4 = try hashDir(std.testing.allocator, io, app, index, &.{"app.h9"});
     var fake: std.ArrayList(u8) = .empty;
-    try fake.print(ar, "2 {d} {s} package.json\n", .{ old.nanoseconds, "f" ** 64 });
+    try fake.print(ar, "2 {d} {s} package.json\n", .{ old.nanoseconds, repeat("f", 64) });
     try tmp.dir.writeFile(io, .{ .sub_path = "index", .data = fake.items });
     const h5 = try hashDir(std.testing.allocator, io, app, index, &.{"app.h9"});
     try std.testing.expect(!std.mem.eql(u8, &h4, &h5));
@@ -880,4 +880,12 @@ test keepTree {
     try tmp.dir.createDirPath(io, "out2/tree/other");
     try keepTree(io, ar, try std.fs.path.join(ar, &.{ root, "out2/tree" }), trees, "abc", true);
     try tmp.dir.access(io, "tree/abc/package.json", .{});
+}
+
+/// `s` `n` times, at comptime.
+fn repeat(comptime s: []const u8, comptime n: usize) *const [s.len * n]u8 {
+    comptime var out: [s.len * n]u8 = undefined;
+    inline for (0..n) |i| @memcpy(out[i * s.len ..][0..s.len], s);
+    const final = out;
+    return &final;
 }

@@ -1,5 +1,5 @@
 //! Events (design/prototype.md, "Events"): as `h9x:` lines on stderr, or
-//! one JSON object per line with `--json`. docs/events.md documents each
+//! one JSON object per line with `--json`. spec/events.md documents each
 //! kind and its fields.
 //!
 //! Commands report through an `Emitter`: `emit` for an event, `log` for a

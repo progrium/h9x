@@ -56,7 +56,8 @@ shift $((OPTIND - 1))
 [ -d "$1" ] || die "$1: not a directory"
 src=$(cd "$1" && pwd)
 out=${out:-$PWD/$(basename "$src").h9}
-here=$(cd "$(dirname "$0")" && pwd)
+# The repository, where guest/ is: the POC lives in poc/.
+here=$(cd "$(dirname "$0")/.." && pwd)
 H9=${H9:-h9}
 H9_FLAGS=${H9_FLAGS:-}
 cache=${H9X_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/h9x}

@@ -149,6 +149,9 @@ pub const Context = struct {
     stderr: *std.Io.Writer,
     events: *events.Emitter,
     common: Common,
+    /// The command's output, such as a build's directory, for the
+    /// `result` event.
+    result_out: ?[]const u8 = null,
 };
 
 pub const Error = error{ Usage, OutOfMemory };

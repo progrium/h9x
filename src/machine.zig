@@ -82,6 +82,10 @@ pub const Host = struct {
         if (h.https_proxy) |p| {
             try env.append(arena, .{ .name = "HTTPS_PROXY", .value = p });
             try env.append(arena, .{ .name = "https_proxy", .value = p });
+            // Node's fetch (corepack's downloads, Deno's npm) ignores the
+            // proxy variables unless asked, and goes direct, which a
+            // sandbox allowing only the proxy refuses.
+            try env.append(arena, .{ .name = "NODE_USE_ENV_PROXY", .value = "1" });
         }
         var mounts: std.ArrayList(h9.Machine.Mount) = .empty;
         try mounts.appendSlice(arena, opts.mounts);
@@ -191,7 +195,7 @@ test "Host.options adds the proxy and CA" {
     });
     try std.testing.expectEqualStrings("HOME", o.env[0].name);
     try std.testing.expectEqualStrings("HTTPS_PROXY", o.env[1].name);
-    try std.testing.expectEqualStrings(guest_ca_file, o.env[3].value);
+    try std.testing.expectEqualStrings(guest_ca_file, o.env[4].value);
     try std.testing.expectEqualStrings("#L/h9x/ca", o.mounts[0].dst);
     try std.testing.expectEqualStrings("1.1.1.1", o.nameservers[0]);
 }

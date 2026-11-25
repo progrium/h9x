@@ -93,7 +93,7 @@ Keys are the first 16 hex digits of a SHA-256. They chain, so a layer is built a
 
 The plan's key, in `plan.key`, hashes the architecture, the source's content hash, Railpack's version (or for `H9X_RAILPACK`, its path, size, and mtime), and h9x's version. A kept plan is used while its key matches, so the versions Railpack resolved stay until the source changes, or `--replan`.
 
-A build keeps every layer whose key matches. Each is built in `layers/NAME.tmp` (`$cache/runtimes/.KEY.tmp-PID` for the runtime) and moved into place when its steps succeed, so a failed step leaves no layer, and the next build starts that layer again.
+A build keeps every layer whose key matches. Each is built in `layers/NAME.tmp` (`$cache/runtimes/.KEY.tmp-NONCE` for the runtime) and moved into place when its steps succeed, so a failed step leaves no layer, and the next build starts that layer again.
 
 ## env
 

@@ -110,7 +110,10 @@ pub fn build(in: Input) !Built {
         ctx.events.emit(.{ .layer = .{ .layer = .runtime, .state = .shared, .key = rkey } });
         cache.touch(io, rdir);
     } else {
-        const t = try e.path(.runtimes, try std.fmt.allocPrint(a, ".{s}.tmp-{d}", .{ rkey, std.os.linux.getpid() }));
+        // A name of its own, since another build may be making the same one.
+        var nonce: [4]u8 = undefined;
+        io.random(&nonce);
+        const t = try e.path(.runtimes, try std.fmt.allocPrint(a, ".{s}.tmp-{x}", .{ rkey, nonce }));
         cache.removeTree(io, t) catch {};
         try cwd.createDirPath(io, t);
         errdefer cache.removeTree(io, t) catch {};

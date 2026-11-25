@@ -713,6 +713,8 @@ test "an untrusted source's file can only narrow" {
         "[run]\npolicy = \"dir rw /home/me /home\"\n",
     };
     for (wide) |text| {
+        // An added host widens only an allowlist.
+        if (policy.open_builds and std.mem.indexOf(u8, text, "netallow") != null) continue;
         const cfg = try testConfig(ar, null, text, &env);
         const phase: types.Phase = if (std.mem.indexOf(u8, text, "[run]") != null) .run else .build;
         try testing.expectError(error.Widens, resolve(ar, &env, cfg, .{ .phase = phase, .trust = .untrusted }, &diag));
@@ -724,11 +726,16 @@ test "an untrusted source's file can only narrow" {
     try testing.expectError(error.Widens, resolve(ar, &env, run_cfg, .{ .phase = .run, .trust = .untrusted }, &diag));
     try testing.expectEqual(@as(usize, 3), diag.line);
 
-    // build.netallow adds to a trusted build's allowlist.
+    // build.netallow adds to a trusted build's allowlist, and leaves an
+    // open network open.
     const add = try testConfig(ar, null, "[build]\nnetallow = [\"api.example.com\"]\n", &env);
     const p = try resolve(ar, &env, add, .{ .phase = .build, .trust = .trusted, .providers = &.{"node"} }, &diag);
-    try testing.expect(policy.covered("tcp!api.example.com!443", p.netallow));
-    try testing.expect(policy.covered("tcp!registry.npmjs.org!443", p.netallow));
+    if (policy.open_builds) {
+        try testing.expectEqual(@as(usize, 0), p.netallow.len);
+    } else {
+        try testing.expect(policy.covered("tcp!api.example.com!443", p.netallow));
+        try testing.expect(policy.covered("tcp!registry.npmjs.org!443", p.netallow));
+    }
 }
 
 test "the user's config may widen; variables and flags only narrow" {

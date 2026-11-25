@@ -54,6 +54,22 @@ pub const NarrowError = error{ Widens, OutOfMemory };
 
 // ---------------------------------------------------------------- defaults
 
+/// Whether the phases that reach registries (fetch, root, plan, build, and
+/// shell) run with an open network instead of their allowlists. They do
+/// for now: h9 matches a `netallow` host name only for names resolved
+/// through its own `cs`, and a Linux guest does its own DNS and connects
+/// by address, so every host-name pattern refuses it. Behind an HTTPS
+/// proxy, which is allowed by its endpoint, the allowlists work; without
+/// one, Railpack's version lookups fail. Once h9 learns the addresses in
+/// a Linux guest's DNS answers for the names an allowlist covers, this
+/// goes back to false and the tables below apply.
+pub const open_builds = true;
+
+/// `hosts`, or none while `open_builds` is set.
+fn allowed(hosts: []const []const u8) []const []const u8 {
+    return if (open_builds) &.{} else hosts;
+}
+
 const GiB: u64 = 1 << 30;
 const min = std.time.ns_per_min;
 
@@ -66,17 +82,17 @@ pub fn defaults(phase: Phase, trust: Trust) Policy {
         // Network to the source's host only, which the caller adds with
         // `allowHost`.
         .fetch => .{ .phase = phase, .trust = trust, .net = .outbound, .memory = 1 * GiB, .timeout_ns = 10 * min },
-        .root => .{ .phase = phase, .trust = trust, .net = .outbound, .netallow = &root_hosts, .memory = 2 * GiB, .timeout_ns = 10 * min },
-        .plan => .{ .phase = phase, .trust = trust, .net = .outbound, .netallow = &version_hosts, .memory = 2 * GiB, .timeout_ns = 2 * min },
+        .root => .{ .phase = phase, .trust = trust, .net = .outbound, .netallow = allowed(&root_hosts), .memory = 2 * GiB, .timeout_ns = 10 * min },
+        .plan => .{ .phase = phase, .trust = trust, .net = .outbound, .netallow = allowed(&version_hosts), .memory = 2 * GiB, .timeout_ns = 2 * min },
         // Builds stay on `enable`, since Mix listens on 127.0.0.1 for its
         // lock and `outbound` refuses every listen. The allowlist is the
         // plan's registries: `registries`.
-        .build => .{ .phase = phase, .trust = trust, .net = .enable, .netallow = &common_hosts, .memory = 4 * GiB, .timeout_ns = 30 * min },
+        .build => .{ .phase = phase, .trust = trust, .net = .enable, .netallow = allowed(&common_hosts), .memory = 4 * GiB, .timeout_ns = 30 * min },
         .run => switch (trust) {
             .trusted => .{ .phase = phase, .trust = trust, .net = .outbound, .write = .overlay, .memory = 1 * GiB },
             .untrusted => .{ .phase = phase, .trust = trust, .net = .disable, .write = .overlay, .memory = 1 * GiB, .timeout_ns = 10 * min },
         },
-        .shell => .{ .phase = phase, .trust = trust, .net = .enable, .netallow = &common_hosts, .memory = 4 * GiB },
+        .shell => .{ .phase = phase, .trust = trust, .net = .enable, .netallow = allowed(&common_hosts), .memory = 4 * GiB },
     };
 }
 
@@ -161,9 +177,10 @@ pub fn registries(arena: std.mem.Allocator, providers: []const []const u8) error
 }
 
 /// `p` with its allowlist set to the plan's registries, for the build and
-/// shell phases. Other phases are returned as they are.
+/// shell phases. Other phases are returned as they are, and so is every
+/// phase while `open_builds` is set.
 pub fn withRegistries(arena: std.mem.Allocator, p: Policy, providers: []const []const u8) error{OutOfMemory}!Policy {
-    if (p.phase != .build and p.phase != .shell) return p;
+    if (open_builds or (p.phase != .build and p.phase != .shell)) return p;
     var out = p;
     out.netallow = try registries(arena, providers);
     return out;
@@ -862,7 +879,7 @@ test "defaults follow the design's table" {
     const b = defaults(.build, .untrusted);
     try t.expectEqual(Net.enable, b.net);
     try t.expectEqual(@as(?u64, 30 * min), b.timeout_ns);
-    try t.expect(b.netallow.len > 0);
+    try t.expectEqual(open_builds, b.netallow.len == 0);
     const rl = defaults(.run, .trusted);
     try t.expectEqual(Net.outbound, rl.net);
     try t.expectEqual(@as(?u64, null), rl.timeout_ns);
@@ -889,9 +906,9 @@ test "registries for a plan's providers" {
         _ = try h9.policy.parseNetPattern(h, &why);
     };
     for (version_hosts) |h| _ = try h9.policy.parseNetPattern(h, &why);
-    // Only build and shell take them.
+    // Only build and shell take them, and only with the allowlists on.
     const b = try withRegistries(a.allocator(), defaults(.build, .trusted), &.{"python"});
-    try t.expect(covered("tcp!files.pythonhosted.org!443", b.netallow));
+    try t.expectEqual(!open_builds, covered("tcp!files.pythonhosted.org!443", b.netallow));
     const run = try withRegistries(a.allocator(), defaults(.run, .trusted), &.{"python"});
     try t.expectEqual(@as(usize, 0), run.netallow.len);
 }
@@ -910,6 +927,7 @@ test "narrowing takes what's narrower and refuses what's wider" {
     const ar = a.allocator();
     var diag: Diag = .{};
     var base = defaults(.build, .untrusted);
+    base.netallow = &common_hosts;
     base.mounts = &.{
         .{ .kind = .dir, .src = "/src", .dst = "#L/app", .access = .rw },
         .{ .kind = .dir, .src = "/cache/builder", .dst = "#L", .access = .ro },
@@ -963,7 +981,8 @@ test "apply adds what narrow refuses" {
     var a: std.heap.ArenaAllocator = .init(t.allocator);
     defer a.deinit();
     const ar = a.allocator();
-    const base = defaults(.build, .trusted);
+    var base = defaults(.build, .trusted);
+    base.netallow = &common_hosts;
     const p = try apply(ar, base, .{ .memory = 8 << 30, .netallow_add = &.{"tcp!api.example.com!443"} });
     try t.expectEqual(@as(?u64, 8 << 30), p.memory);
     try t.expect(covered("tcp!api.example.com!443", p.netallow));

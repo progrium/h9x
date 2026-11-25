@@ -224,6 +224,8 @@ The defaults per phase, as tight as each phase allows:
 
 `netallow` for build and shell is derived from the plan's providers, with a table in `policy.zig`: npm's, PyPI's (`pypi.org` and `files.pythonhosted.org`), RubyGems', Go's proxy and sum database, crates.io's, NuGet's, Hex's, Deno's, JSR's, and Wolfi's hosts, and GitHub's for mise's downloads. `build.netallow` adds more, and `build.net = "outbound"` or `"none"` narrows. Builds stay on `net enable` rather than `outbound` because Mix listens on 127.0.0.1 for its lock, and `outbound` refuses every listen.
 
+For now, the fetch, root, plan, build, and shell phases run with an open network instead (`policy.open_builds`). h9 matches a host-name pattern only for names resolved through its own `cs`, and a Linux guest does its own DNS and connects by address, so without a proxy every host-name pattern refuses it. The allowlists come back when h9 checks and learns from a Linux guest's DNS.
+
 A few rules hold across phases:
 
 - **No host environment.** h9 never imports it. Secrets named by `build.secrets` or `--secret NAME` are read from the host environment and passed as `env` lines to build steps only. They're never written into a layer's key, `plan.json`, `env`, `artifact.json`, or `--print`'s output, which shows `env NAME=…`.

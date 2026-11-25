@@ -891,6 +891,13 @@ test "defaults follow the design's table" {
     try t.expectEqual(@as(?u64, null), defaults(.shell, .trusted).timeout_ns);
 }
 
+test "open_builds leaves the network phases without an allowlist" {
+    if (!open_builds) return error.SkipZigTest;
+    for ([_]Phase{ .fetch, .root, .plan, .build, .shell }) |ph| for (std.enums.values(Trust)) |tr| {
+        try t.expectEqual(@as(usize, 0), defaults(ph, tr).netallow.len);
+    };
+}
+
 test "registries for a plan's providers" {
     var a: std.heap.ArenaAllocator = .init(t.allocator);
     defer a.deinit();

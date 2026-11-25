@@ -43,6 +43,10 @@ pub fn build(b: *std.Build) void {
     });
     const runner = b.addExecutable(.{ .name = "h9x-runner", .root_module = runner_mod });
     macos(b, runner, os);
+    // pack adds a load command for the __H9X segment, and one for the
+    // signature if there's none, after the runner's own (src/exe/macho.zig).
+    // Zig's linker leaves no room there unless asked.
+    runner.headerpad_size = macho_headerpad;
 
     // h9x: the CLI, with the guest scripts and the host's runner embedded.
     const mod = b.createModule(.{
@@ -91,7 +95,36 @@ pub fn build(b: *std.Build) void {
         macos(b, t, os);
         test_step.dependOn(&b.addRunArtifact(t).step);
     }
+
+    // The executable containers on real runners (src/exe_test.zig): a
+    // stand-in runner built for each container's OS, the Linux one for the
+    // host's architecture so the test can run it.
+    const exe_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/exe_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const host_arch = target.result.cpu.arch;
+    const fixtures = [_]struct { []const u8, []const u8 }{
+        .{ "fixture_elf", if (os == .linux and (host_arch == .x86_64 or host_arch == .aarch64)) b.fmt("{t}-linux-musl", .{host_arch}) else "x86_64-linux-musl" },
+        .{ "fixture_macho", "aarch64-macos" },
+        .{ "fixture_pe", "x86_64-windows-gnu" },
+    };
+    for (fixtures) |f| {
+        const fixture = b.addExecutable(.{ .name = f[0], .root_module = b.createModule(.{
+            .root_source_file = b.path("src/exe/testdata/runner.zig"),
+            .target = b.resolveTargetQuery(std.Target.Query.parse(.{ .arch_os_abi = f[1] }) catch unreachable),
+            .optimize = .ReleaseSmall,
+            .strip = true,
+        }) });
+        fixture.headerpad_size = macho_headerpad;
+        exe_test_mod.addAnonymousImport(f[0], .{ .root_source_file = fixture.getEmittedBin() });
+    }
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = exe_test_mod })).step);
 }
+
+/// Room after a Mach-O runner's load commands for the two pack adds.
+const macho_headerpad = 0x400;
 
 /// What a program on h9 needs on macOS: the Hypervisor framework, and the
 /// SDK's paths when SDKROOT names one.

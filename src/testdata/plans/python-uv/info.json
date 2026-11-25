@@ -1,0 +1,200 @@
+{
+  "railpackVersion": "0.43.0",
+  "plan": {
+    "steps": [
+      {
+        "name": "packages:mise",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-builder:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "path": "/mise/shims"
+          },
+          {
+            "src": ".python-version",
+            "dest": ".python-version"
+          },
+          {
+            "path": "/etc/mise/config.toml",
+            "name": "generated-mise-toml",
+            "customName": "create mise config"
+          },
+          {
+            "cmd": "mise install",
+            "customName": "install mise packages: python, uv"
+          }
+        ],
+        "assets": {
+          "generated-mise-toml": "[tools]\n  python = \"3.11.18\"\n  uv = \"0.13.7\"\n\n[settings]\n  idiomatic_version_file_enable_tools = [\"python\", \"node\", \"ruby\", \"elixir\", \"go\", \"java\", \"yarn\", \"pnpm\", \"bun\", \"deno\", \"dotnet\", \"rust\"]\n  minimum_release_age = \"14d\"\n  paranoid = true\n  trusted_config_paths = [\"/app\"]\n  [settings.node]\n    verify = false\n  [settings.python]\n    compile = false\n"
+        },
+        "variables": {
+          "MISE_CACHE_DIR": "/mise/cache",
+          "MISE_CONFIG_DIR": "/mise",
+          "MISE_DATA_DIR": "/mise",
+          "MISE_INSTALLS_DIR": "/mise/installs",
+          "MISE_SHIMS_DIR": "/mise/shims"
+        }
+      },
+      {
+        "name": "install",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          }
+        ],
+        "commands": [
+          {
+            "src": "pyproject.toml",
+            "dest": "pyproject.toml"
+          },
+          {
+            "src": "uv.lock",
+            "dest": "uv.lock"
+          },
+          {
+            "path": "/root/.local/bin"
+          },
+          {
+            "path": "/app/.venv/bin"
+          },
+          {
+            "cmd": "uv sync --locked --no-dev --no-install-project"
+          }
+        ],
+        "variables": {
+          "PIP_DEFAULT_TIMEOUT": "100",
+          "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+          "PYTHONDONTWRITEBYTECODE": "1",
+          "PYTHONFAULTHANDLER": "1",
+          "PYTHONHASHSEED": "random",
+          "PYTHONUNBUFFERED": "1",
+          "UV_CACHE_DIR": "/opt/uv-cache",
+          "UV_COMPILE_BYTECODE": "1",
+          "UV_LINK_MODE": "copy",
+          "UV_PYTHON_DOWNLOADS": "never",
+          "VIRTUAL_ENV": "/app/.venv"
+        },
+        "caches": [
+          "uv"
+        ]
+      },
+      {
+        "name": "build",
+        "inputs": [
+          {
+            "step": "install"
+          },
+          {
+            "local": true,
+            "include": [
+              "."
+            ]
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "uv sync --locked --no-dev --no-editable"
+          }
+        ],
+        "secrets": [
+          "*"
+        ]
+      }
+    ],
+    "caches": {
+      "uv": {
+        "directory": "/opt/uv-cache",
+        "type": "shared"
+      }
+    },
+    "deploy": {
+      "base": {
+        "image": "ghcr.io/railwayapp/railpack-runtime:mise-2026.10.14"
+      },
+      "inputs": [
+        {
+          "step": "packages:mise",
+          "include": [
+            "/mise/shims",
+            "/mise/installs",
+            "/usr/local/bin/mise",
+            "/etc/mise/config.toml",
+            "/root/.local/state/mise"
+          ]
+        },
+        {
+          "step": "build",
+          "include": [
+            "/app/.venv"
+          ]
+        },
+        {
+          "step": "build",
+          "include": [
+            "."
+          ],
+          "exclude": [
+            ".venv"
+          ]
+        }
+      ],
+      "startCommand": "gunicorn --bind 0.0.0.0:${PORT:-8000} main:app",
+      "variables": {
+        "PIP_DEFAULT_TIMEOUT": "100",
+        "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONFAULTHANDLER": "1",
+        "PYTHONHASHSEED": "random",
+        "PYTHONUNBUFFERED": "1",
+        "RAILPACK_VERSION": "0.43.0"
+      }
+    },
+    "exclude": [
+      ".venv",
+      "venv"
+    ]
+  },
+  "resolvedPackages": {
+    "python": {
+      "name": "python",
+      "requestedVersion": "3.11.18",
+      "resolvedVersion": "3.11.18",
+      "source": "idiomatic-version-file"
+    },
+    "uv": {
+      "name": "uv",
+      "requestedVersion": "latest",
+      "resolvedVersion": "0.13.7",
+      "source": "railpack default"
+    }
+  },
+  "metadata": {
+    "providers": "python",
+    "pythonPackageManager": "uv",
+    "pythonRuntime": "flask"
+  },
+  "detectedProviders": [
+    "python"
+  ],
+  "logs": [
+    {
+      "Level": "info",
+      "Msg": "Detected Python",
+      "DocsPath": ""
+    },
+    {
+      "Level": "info",
+      "Msg": "Using uv",
+      "DocsPath": ""
+    },
+    {
+      "Level": "suggestion",
+      "Msg": "Applying default exclude patterns: `.venv`, `venv`. Add a `.dockerignore` to customize",
+      "DocsPath": "/config/excluding-files"
+    }
+  ],
+  "success": true
+}

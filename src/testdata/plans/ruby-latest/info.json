@@ -1,0 +1,219 @@
+{
+  "railpackVersion": "0.43.0",
+  "plan": {
+    "steps": [
+      {
+        "name": "packages:apt:build",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-builder:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "sh -c 'apt-get update \u0026\u0026 apt-get install -y libjemalloc-dev libyaml-dev'",
+            "customName": "install apt packages: libjemalloc-dev libyaml-dev"
+          }
+        ],
+        "caches": [
+          "apt",
+          "apt-lists"
+        ]
+      },
+      {
+        "name": "packages:mise",
+        "inputs": [
+          {
+            "step": "packages:apt:build"
+          }
+        ],
+        "commands": [
+          {
+            "path": "/mise/shims"
+          },
+          {
+            "src": "mise.toml",
+            "dest": "mise.toml"
+          },
+          {
+            "src": "Gemfile",
+            "dest": "Gemfile"
+          },
+          {
+            "path": "/etc/mise/config.toml",
+            "name": "generated-mise-toml",
+            "customName": "create mise config"
+          },
+          {
+            "cmd": "mise install",
+            "customName": "install mise packages: ruby"
+          }
+        ],
+        "assets": {
+          "generated-mise-toml": "[tools]\n  ruby = \"4.0.10\"\n\n[settings]\n  idiomatic_version_file_enable_tools = [\"python\", \"node\", \"ruby\", \"elixir\", \"go\", \"java\", \"yarn\", \"pnpm\", \"bun\", \"deno\", \"dotnet\", \"rust\"]\n  minimum_release_age = \"14d\"\n  paranoid = true\n  trusted_config_paths = [\"/app\"]\n  [settings.node]\n    verify = false\n"
+        },
+        "variables": {
+          "MISE_CACHE_DIR": "/mise/cache",
+          "MISE_CONFIG_DIR": "/mise",
+          "MISE_DATA_DIR": "/mise",
+          "MISE_INSTALLS_DIR": "/mise/installs",
+          "MISE_SHIMS_DIR": "/mise/shims",
+          "RUBY_CONFIGURE_OPTS": "--disable-install-doc"
+        }
+      },
+      {
+        "name": "install",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "gem install -N bundler:2.6.9"
+          },
+          {
+            "src": "Gemfile",
+            "dest": "Gemfile"
+          },
+          {
+            "src": "Gemfile.lock",
+            "dest": "Gemfile.lock"
+          },
+          {
+            "cmd": "bundle install"
+          },
+          {
+            "path": "/usr/local/bundle"
+          }
+        ],
+        "variables": {
+          "BUNDLE_GEMFILE": "/app/Gemfile",
+          "GEM_HOME": "/usr/local/bundle",
+          "GEM_PATH": "/usr/local/bundle",
+          "LD_PRELOAD": "libjemalloc.so.2",
+          "MALLOC_ARENA_MAX": "2"
+        }
+      },
+      {
+        "name": "build",
+        "inputs": [
+          {
+            "step": "install"
+          },
+          {
+            "local": true,
+            "include": [
+              "."
+            ]
+          }
+        ],
+        "variables": {
+          "BUNDLE_GEMFILE": "/app/Gemfile",
+          "GEM_HOME": "/usr/local/bundle",
+          "GEM_PATH": "/usr/local/bundle",
+          "LD_PRELOAD": "libjemalloc.so.2",
+          "MALLOC_ARENA_MAX": "2"
+        }
+      },
+      {
+        "name": "packages:apt:runtime",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-runtime:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "sh -c 'apt-get update \u0026\u0026 apt-get install -y libjemalloc2 libyaml-dev'",
+            "customName": "install apt packages: libjemalloc2 libyaml-dev"
+          }
+        ],
+        "caches": [
+          "apt",
+          "apt-lists"
+        ]
+      }
+    ],
+    "caches": {
+      "apt": {
+        "directory": "/var/cache/apt",
+        "type": "locked"
+      },
+      "apt-lists": {
+        "directory": "/var/lib/apt/lists",
+        "type": "locked"
+      }
+    },
+    "deploy": {
+      "base": {
+        "step": "packages:apt:runtime"
+      },
+      "inputs": [
+        {
+          "step": "packages:mise",
+          "include": [
+            "/mise/shims",
+            "/mise/installs",
+            "/usr/local/bin/mise",
+            "/etc/mise/config.toml",
+            "/root/.local/state/mise"
+          ]
+        },
+        {
+          "step": "install",
+          "include": [
+            "/usr/local/bundle"
+          ]
+        },
+        {
+          "step": "build",
+          "include": [
+            "/app"
+          ]
+        }
+      ],
+      "startCommand": "ruby app.rb",
+      "variables": {
+        "BUNDLE_GEMFILE": "/app/Gemfile",
+        "GEM_HOME": "/usr/local/bundle",
+        "GEM_PATH": "/usr/local/bundle",
+        "LD_PRELOAD": "libjemalloc.so.2",
+        "MALLOC_ARENA_MAX": "2",
+        "RAILPACK_VERSION": "0.43.0"
+      }
+    }
+  },
+  "resolvedPackages": {
+    "ruby": {
+      "name": "ruby",
+      "requestedVersion": "4.0.10",
+      "resolvedVersion": "4.0.10",
+      "source": "mise.toml"
+    }
+  },
+  "metadata": {
+    "providers": "ruby"
+  },
+  "detectedProviders": [
+    "ruby"
+  ],
+  "logs": [
+    {
+      "Level": "info",
+      "Msg": "Detected Ruby",
+      "DocsPath": ""
+    },
+    {
+      "Level": "info",
+      "Msg": "Found web command in Procfile",
+      "DocsPath": ""
+    },
+    {
+      "Level": "suggestion",
+      "Msg": "Add a `.dockerignore` file to exclude files from the build",
+      "DocsPath": "/config/excluding-files"
+    }
+  ],
+  "success": true
+}

@@ -1,0 +1,197 @@
+{
+  "railpackVersion": "0.43.0",
+  "plan": {
+    "steps": [
+      {
+        "name": "packages:mise",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-builder:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "path": "/mise/shims"
+          },
+          {
+            "src": "global.json",
+            "dest": "global.json"
+          },
+          {
+            "path": "/etc/mise/config.toml",
+            "name": "generated-mise-toml",
+            "customName": "create mise config"
+          },
+          {
+            "cmd": "mise install",
+            "customName": "install mise packages: dotnet"
+          }
+        ],
+        "assets": {
+          "generated-mise-toml": "[tools]\n  dotnet = \"8.0.404\"\n\n[settings]\n  idiomatic_version_file_enable_tools = [\"python\", \"node\", \"ruby\", \"elixir\", \"go\", \"java\", \"yarn\", \"pnpm\", \"bun\", \"deno\", \"dotnet\", \"rust\"]\n  minimum_release_age = \"14d\"\n  paranoid = true\n  trusted_config_paths = [\"/app\"]\n  [settings.node]\n    verify = false\n"
+        },
+        "variables": {
+          "MISE_CACHE_DIR": "/mise/cache",
+          "MISE_CONFIG_DIR": "/mise",
+          "MISE_DATA_DIR": "/mise",
+          "MISE_INSTALLS_DIR": "/mise/installs",
+          "MISE_SHIMS_DIR": "/mise/shims"
+        }
+      },
+      {
+        "name": "install",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          }
+        ],
+        "commands": [
+          {
+            "src": "nuget.config*",
+            "dest": "nuget.config*"
+          },
+          {
+            "src": "*.csproj",
+            "dest": "*.csproj"
+          },
+          {
+            "src": "global.json*",
+            "dest": "global.json*"
+          },
+          {
+            "cmd": "mkdir -p /root/.nuget/packages"
+          },
+          {
+            "cmd": "dotnet restore"
+          }
+        ],
+        "secrets": [
+          "*"
+        ],
+        "variables": {
+          "ASPNETCORE_CONTENTROOT": "/app/out",
+          "ASPNETCORE_ENVIRONMENT": "Production",
+          "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+          "DOTNET_ROOT": "/mise/installs/dotnet/8.0.404"
+        }
+      },
+      {
+        "name": "build",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          },
+          {
+            "step": "install",
+            "include": [
+              "obj/",
+              "/root/.nuget/packages"
+            ]
+          },
+          {
+            "local": true,
+            "include": [
+              "."
+            ]
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "dotnet publish --no-restore -c Release -o out"
+          }
+        ],
+        "secrets": [
+          "*"
+        ],
+        "variables": {
+          "ASPNETCORE_CONTENTROOT": "/app/out",
+          "ASPNETCORE_ENVIRONMENT": "Production",
+          "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+          "DOTNET_ROOT": "/mise/installs/dotnet/8.0.404"
+        }
+      },
+      {
+        "name": "packages:apt:runtime",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-runtime:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "sh -c 'apt-get update \u0026\u0026 apt-get install -y libicu-dev'",
+            "customName": "install apt packages: libicu-dev"
+          }
+        ],
+        "caches": [
+          "apt",
+          "apt-lists"
+        ]
+      }
+    ],
+    "caches": {
+      "apt": {
+        "directory": "/var/cache/apt",
+        "type": "locked"
+      },
+      "apt-lists": {
+        "directory": "/var/lib/apt/lists",
+        "type": "locked"
+      }
+    },
+    "deploy": {
+      "base": {
+        "step": "packages:apt:runtime"
+      },
+      "inputs": [
+        {
+          "step": "packages:mise",
+          "include": [
+            "/mise/installs/dotnet/8.0.404"
+          ]
+        },
+        {
+          "step": "build",
+          "include": [
+            "out"
+          ]
+        }
+      ],
+      "startCommand": "ASPNETCORE_URLS=http://0.0.0.0:${PORT:-3000} ./out/csharp-api",
+      "variables": {
+        "ASPNETCORE_CONTENTROOT": "/app/out",
+        "ASPNETCORE_ENVIRONMENT": "Production",
+        "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+        "DOTNET_ROOT": "/mise/installs/dotnet/8.0.404",
+        "RAILPACK_VERSION": "0.43.0"
+      }
+    }
+  },
+  "resolvedPackages": {
+    "dotnet": {
+      "name": "dotnet",
+      "requestedVersion": "8.0.404",
+      "resolvedVersion": "8.0.404",
+      "source": "idiomatic-version-file"
+    }
+  },
+  "metadata": {
+    "providers": "Dotnet"
+  },
+  "detectedProviders": [
+    "Dotnet"
+  ],
+  "logs": [
+    {
+      "Level": "info",
+      "Msg": "Detected Dotnet",
+      "DocsPath": ""
+    },
+    {
+      "Level": "suggestion",
+      "Msg": "Add a `.dockerignore` file to exclude files from the build",
+      "DocsPath": "/config/excluding-files"
+    }
+  ],
+  "success": true
+}

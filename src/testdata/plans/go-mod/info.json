@@ -1,0 +1,160 @@
+{
+  "railpackVersion": "0.43.0",
+  "plan": {
+    "steps": [
+      {
+        "name": "packages:mise",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-builder:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "path": "/mise/shims"
+          },
+          {
+            "src": "mise.toml",
+            "dest": "mise.toml"
+          },
+          {
+            "path": "/etc/mise/config.toml",
+            "name": "generated-mise-toml",
+            "customName": "create mise config"
+          },
+          {
+            "cmd": "mise install",
+            "customName": "install mise packages: go"
+          }
+        ],
+        "assets": {
+          "generated-mise-toml": "[tools]\n  go = \"1.25.3\"\n\n[settings]\n  idiomatic_version_file_enable_tools = [\"python\", \"node\", \"ruby\", \"elixir\", \"go\", \"java\", \"yarn\", \"pnpm\", \"bun\", \"deno\", \"dotnet\", \"rust\"]\n  minimum_release_age = \"14d\"\n  paranoid = true\n  trusted_config_paths = [\"/app\"]\n  [settings.node]\n    verify = false\n"
+        },
+        "variables": {
+          "MISE_CACHE_DIR": "/mise/cache",
+          "MISE_CONFIG_DIR": "/mise",
+          "MISE_DATA_DIR": "/mise",
+          "MISE_INSTALLS_DIR": "/mise/installs",
+          "MISE_SHIMS_DIR": "/mise/shims"
+        }
+      },
+      {
+        "name": "install",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          }
+        ],
+        "commands": [
+          {
+            "path": "/go/bin"
+          },
+          {
+            "src": "go.mod",
+            "dest": "go.mod"
+          },
+          {
+            "src": "go.sum",
+            "dest": "go.sum"
+          },
+          {
+            "cmd": "go mod download"
+          }
+        ],
+        "secrets": [
+          "*"
+        ],
+        "variables": {
+          "CGO_ENABLED": "0",
+          "GOBIN": "/go/bin",
+          "GOPATH": "/go"
+        },
+        "caches": [
+          "go-build"
+        ]
+      },
+      {
+        "name": "build",
+        "inputs": [
+          {
+            "step": "install"
+          },
+          {
+            "local": true,
+            "include": [
+              "."
+            ]
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "go build -ldflags=\"-w -s\" -o out"
+          }
+        ],
+        "secrets": [
+          "*"
+        ],
+        "caches": [
+          "go-build"
+        ]
+      }
+    ],
+    "caches": {
+      "go-build": {
+        "directory": "/root/.cache/go-build",
+        "type": "shared"
+      }
+    },
+    "deploy": {
+      "base": {
+        "image": "ghcr.io/railwayapp/railpack-runtime:mise-2026.10.14"
+      },
+      "inputs": [
+        {
+          "step": "build",
+          "include": [
+            "."
+          ]
+        }
+      ],
+      "startCommand": "./out",
+      "variables": {
+        "RAILPACK_VERSION": "0.43.0"
+      }
+    }
+  },
+  "resolvedPackages": {
+    "go": {
+      "name": "go",
+      "requestedVersion": "1.25.3",
+      "resolvedVersion": "1.25.3",
+      "source": "mise.toml"
+    }
+  },
+  "metadata": {
+    "goMod": "true",
+    "goRootFile": "true",
+    "providers": "golang"
+  },
+  "detectedProviders": [
+    "golang"
+  ],
+  "logs": [
+    {
+      "Level": "info",
+      "Msg": "Detected Golang",
+      "DocsPath": ""
+    },
+    {
+      "Level": "info",
+      "Msg": "Using go mod",
+      "DocsPath": ""
+    },
+    {
+      "Level": "suggestion",
+      "Msg": "Add a `.dockerignore` file to exclude files from the build",
+      "DocsPath": "/config/excluding-files"
+    }
+  ],
+  "success": true
+}

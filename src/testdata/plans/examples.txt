@@ -1,0 +1,14 @@
+go-mod
+node-npm
+node-bun
+node-lts-npm-native-deps
+python-uv
+deno-2
+ruby-latest
+cpp-cmake
+gleam
+elixir-latest
+rust-rocket
+zig
+dotnet-cli
+dotnet-api

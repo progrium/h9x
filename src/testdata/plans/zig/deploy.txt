@@ -1,0 +1,1 @@
+app /app/zig-out/bin 

@@ -1,0 +1,7 @@
+runtime /mise/shims 
+runtime /mise/installs 
+runtime /usr/local/bin/mise 
+runtime /etc/mise/config.toml 
+runtime /root/.local/state/mise 
+app /app/.venv 
+app /app /app/.venv

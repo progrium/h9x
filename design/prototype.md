@@ -36,7 +36,7 @@ The prototype covers 1 to 5 and the Zig library behind 8. Shared caches, `verify
 
 ### The proof of concept
 
-The proof of concept is [h9x](../h9x), a POSIX shell script of about 430 lines, and three guest scripts in [guest/](../guest). `h9x [-o OUT] APPDIR` builds a local directory into `OUT/`, and `OUT/run` runs it. It works:
+The proof of concept is [poc/h9x](../poc/h9x), a POSIX shell script of about 430 lines, and three guest scripts in [guest/](../guest). `h9x [-o OUT] APPDIR` builds a local directory into `OUT/`, and `OUT/run` runs it. It works:
 
 - **Roots.** Alpine's minirootfs and Railpack's static binary are downloaded once. In a machine on the Alpine root, `guest/roots.sh` runs `apk --root` to install Wolfi packages into two roots in the cache, keyed by package set: *base*, which apps run on (glibc, `libstdc++`, OpenSSL, zlib, certificates, `tzdata`, busybox, and bash, about 40 MB), and *builder*, which adds what Railpack's builder image has (gcc, make, cmake, the autotools, git, jq, and the usual headers).
 - **Plan.** In a machine on the builder root, `railpack plan` writes `plan.json`, and `guest/plan.sh` uses `jq` to turn it into plain text files the host script reads with `awk`: which layer each step builds in, each layer's key, the shared runtime key, the deploy paths, and the apt packages. The plan is kept with a key of every source file, Railpack, and `plan.sh`, since planning is most of a build with nothing changed.

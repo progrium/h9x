@@ -414,7 +414,7 @@ pub fn runPolicy(arena: Allocator, pj: PackJson, req: RunRequest, diag: *policy.
 
 const testing = std.testing;
 
-fn mkfile(dir: Io.Dir, path: []const u8, data: []const u8, mode: u32) !void {
+fn mkfile(dir: Io.Dir, path: []const u8, data: []const u8, mode: std.posix.mode_t) !void {
     const io = testing.io;
     if (std.fs.path.dirname(path)) |d| try dir.createDirPath(io, d);
     try dir.writeFile(io, .{ .sub_path = path, .data = data, .flags = .{ .permissions = .fromMode(mode) } });

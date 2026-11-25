@@ -4,13 +4,14 @@ Nov 23, 2026 · Jeff Lindsay. Exported from the design doc at https://claude.ai/
 
 ## Summary
 
-h9x should be pitched as **one command that safely runs any repo**: `h9x run github.com/foo/bar` detects the language, builds it in sandboxed, cached layers, and runs it, with no Docker, daemon, or root. Dev shells (`h9x shell`) and agent sandboxes fall out of the same layers, so those three lead; OCI export, single-file packs, and cache sharing are follow-ons.
+h9x should be pitched as **one command that safely runs any repo**: `h9x run github.com/foo/bar` detects the language, builds it in sandboxed, cached layers, and runs it, with no Docker, daemon, or root. Dev shells (`h9x shell`) and agent sandboxes fall out of the same layers, so those three lead; OCI export, single-file packs and executables, and cache sharing are follow-ons.
 
 The main recommendations:
 
 - **Seven commands:** `run`, `build`, `shell`, `plan`, `export`, `pack`, `cache`. `run` and `shell` build implicitly, so most people never type `build`.
 - **Don't invent a build config.** Build overrides stay in Railpack's own `railpack.json`. h9x adds one small `h9x.toml` for roots, limits, and sandbox policy, and a committed `h9x.lock` for reproducibility.
 - **Sandbox policy is h9's plan format.** Each phase (plan, build, run, shell) gets a default h9 plan, which the user can print and narrow. Builds get registry-only network by default.
+- **`pack` makes executables too.** `h9x pack --exe` writes one file that is h9 plus the app's layers, and `--target` writes one for each of macOS, Linux, and Windows on amd64 and arm64, from any host, with no compiler.
 - **Write the library in Zig, on h9's Zig library**, and ship one static binary with h9 inside. Railpack, mise, and apk keep running as guest Linux binaries. A C ABI with JSON in and out covers Go, Python, and Node callers.
 - **Be honest about "safe".** h9's sandbox hasn't been audited. The untrusted-code pitch should wait on that audit, and on the build failures and cold-build speed listed under Gaps.
 
@@ -37,7 +38,7 @@ The top three share one engine (plan, build layers, run them in an h9 sandbox), 
 | 2 | Dev shells: `h9x shell` | Contributors, onboarding | The project's exact toolchain from the same cached layers as the build. It's a devcontainer without Docker Desktop. | Not built. The layers exist, so it's mostly a new run mode. |
 | 3 | Agent and untrusted-code sandbox | AI coding agents, CI on fork PRs, code review | A per-phase policy (no host files, registry-only network, limits, timeouts) that's printable and diffable. Machine-readable events. | The engine is there, but the h9 sandbox isn't audited and builds have open outbound network. |
 | 4 | OCI export: `h9x export` | CI, teams on Kubernetes or a PaaS | A daemonless buildpacks alternative whose images are 37 to 69% smaller than Railpack's on Docker. | Layers are already OCI layers. It needs a config, manifest, gzip, and push. |
-| 5 | Single-file packs: `h9x pack` | Shipping CLIs and demos, the browser host | One file runs anywhere h9 runs, browser included. | Needs the base root folded in and an `.h9a` writer. |
+| 5 | Single-file packs and executables: `h9x pack` | Shipping CLIs, tools, and demos to people who don't have h9, the browser host | One tar runs anywhere h9 runs, browser included. With `--exe`, one executable per platform runs with nothing installed, and one machine can make every platform's. | Needs the base root folded in, the flattened tar and its index, and the runner (see pack). |
 | 6 | Shared build cache | Teams, CI fleets | Input-keyed layers can move between machines with no BuildKit. | Keys exist. Needs push and pull, and keys that don't depend on the host path. |
 | 7 | Reproducibility checks: `h9x verify` | Release engineers | A pinned plan plus content-keyed layers let you rebuild and diff. | Needs a lockfile and deterministic tar output (mtimes, ordering). |
 | 8 | Embedding as a library | A PaaS, an editor's "run this project" button, uitree's app builder | Plan, build, and run as calls, not shell-outs. | Needs the Zig port (see Library API). |
@@ -53,7 +54,7 @@ Seven subcommands, each taking a SOURCE that defaults to `.`. A SOURCE is a dire
 | `shell` | A shell in the build environment, with the source mounted | Not built |
 | `plan` | Print or explain the plan without building | Inside the build only |
 | `export` | Write or push an OCI image | Not built |
-| `pack` | Write one self-contained `.h9a` file | Not built |
+| `pack` | Write one self-contained tar, or an executable for one or more platforms | Not built |
 | `cache` | List, size, prune, push, and pull cached roots and layers | Not built |
 
 ### run
@@ -111,11 +112,76 @@ The image is the base root as one layer, then the run layers from `layers.txt`, 
 ### pack
 
 ```sh
-h9x pack . -o app.h9a
-h9 --archive app.h9a          # or open it in the browser host
+h9x pack . -o app.tar                       # a tar, for h9 or the browser host
+h9 --archive app.tar:#L sh /.h9x/run
+
+h9x pack . --exe -o app                     # an executable for this machine
+./app --port 8080                           # runs the start command, with these args
+
+h9x pack . --target linux-amd64,macos-arm64,windows-amd64 -o dist/
+h9x pack . --target all -o dist/            # every target in the table below
+h9x pack ./app.h9 --target all -o dist/     # from a build directory, without building
+h9x pack . --exe --compress zstd -o app     # smaller, at some cost to start-up
 ```
 
-A pack is the base root and run layers flattened into one archive, with the env and start command in a header that h9 reads. It's the uitree `pack` story for any app.
+A pack is the base root and run layers flattened into one tar, whiteouts applied, with the env, start command, and run policy in `/.h9x/pack.json` and a `/.h9x/run` script that starts the app with plain h9. It's the uitree `pack` story for any app.
+
+**Executables.** `--exe` and `--target` wrap that archive in an executable: a prebuilt *runner* for the target with the archive appended, so the result runs on a machine with no h9, h9x, or Docker. `--exe` means the host's own target. `--target` takes a comma-separated list of `OS-ARCH` names, or `all`, and writes `dist/app-OS-ARCH` (`.exe` on Windows) for each, named after the source unless `-o` names a file. Making one needs no compiler and no SDK, so any host can make every target's: h9x only builds the layers, writes the archive, and joins it to each runner.
+
+**The runner.** The runner is h9's library plus a small `main` that finds the archive in its own file, mounts it, and runs the start command, with the executable's arguments after it as `h9x run . -- ARGS` would. It's a separate build from the `h9x` binary, without Railpack, the guest scripts, or the cache, so it adds only h9's size to the app. h9x's release ships a runner for each target, built in the same cross-compiling release script as h9's, and pins each by version and sha256. The host's own runner is embedded in `h9x`, so `--exe` works offline, and the others download into the cache the first time a pack asks for them, as Railpack and Alpine do. `--runner FILE` uses a runner built by hand, for a patched h9.
+
+A few rules keep a packed executable predictable:
+
+- **Arguments are the app's.** Everything after `argv[0]` goes to the start command. The runner reads one variable of its own, `H9X_PACK`, so `H9X_PACK=info ./app` prints the pack's digest, layers, and policy, and `H9X_PACK=shell ./app` opens a shell in it. `--no-debug` at pack time turns both off.
+- **The policy is sealed in.** The run policy from `h9x.toml`'s `[run]` table is in the header, and the runner applies it as `h9x run` would for a local source. Host files are reachable only through the `--mount` lines given at pack time, such as `--mount .:/work` for a CLI that works on the current directory. As everywhere else, the environment can narrow the policy (`H9X_PACK_NET=none`) but never widen it.
+- **Writes go to memory.** The packed layers are read-only, and writes land in an overlay that's thrown away at exit, unless a `--mount` names a writable host directory.
+
+**How the archive is embedded, and found at run time.** Each OS gets the container its own tools expect, so signing and inspection tools still work on the result:
+
+| Target OS | Where the archive goes | How the runner finds it |
+| --- | --- | --- |
+| Linux | Appended after the ELF image, followed by a 32-byte trailer: a magic string, the archive's offset and length, and a version | Reads the last 32 bytes of `/proc/self/exe` |
+| macOS | A segment of its own, `__H9X` with one section `__pack`, added before `__LINKEDIT`, as Node's single-executable applications do | Looks up the section in its own Mach-O header, then reads that range of the file from `_NSGetExecutablePath` |
+| Windows | A PE section, `.h9x`, added after the last section, before any Authenticode certificate | Walks its own section table from `GetModuleHandleW(NULL)`, then reads that range of the file from `GetModuleFileNameW` |
+
+Every target also gets the trailer, so one code path in the runner (and `h9x pack --inspect FILE`) can find the archive in any of them, and the section is what keeps the OS's signature valid. The archive is a plain, uncompressed tar, so any tar tool can list it and h9's `--archive` mounts it today. Its last entry, `/.h9x/index`, lists every file's offset in the tar, as eStargz's table of contents does, and the trailer points at it, so the runner can open any file with one seek and without reading the rest. h9's `.h9a` isn't used: it was made for the browser host's root and has no index. By default the tar is uncompressed, which `--compress` changes (below).
+
+**Compression.** `--compress` picks how the tar is stored, for a plain pack and an executable alike:
+
+| `--compress` | Stored as | Size | Opening a file | Read by |
+| --- | --- | --- | --- | --- |
+| `none` (the default) | A plain tar | Largest: the layers as they are | One seek and a read | Any tar tool, and h9's `--archive` today |
+| `zstd`, or `zstd:LEVEL` (1 to 19, default 3) | A seekable `.tar.zst`: the same tar, compressed in independent zstd frames, with the index in a frame of its own at the end | Usually a third to a half of `none` for runtimes and `node_modules` (to be measured) | One seek and one frame decompressed, at about 1 GB/s | `zstd -d \| tar -x`, since the frames concatenate into an ordinary zstd stream, and h9 once it reads zstd |
+
+With `zstd`, each frame holds one file's header and data, so the index can point at the frame for any file, as Podman's `zstd:chunked` layers do. Two tweaks keep the ratio up: small files share a frame, up to 64 KB of input, and a big file is split into 1 MB frames, so a read in the middle of it decompresses one frame rather than the whole file. The index records each file's frame, its offset in the frame, and its size, so the runner never scans the tar. zstd rather than brotli or xz, because it decompresses several times faster at a similar ratio, Zig's std has a decoder (`std.compress.zstd`), and the seekable layout already has prior art. `none` stays the default because start-up is the runner's hot path and a download is compressed anyway (the release's `.tar.gz` or `.zip`), so `zstd` is for executables that sit on disk, or ship without an outer archive.
+
+**Serving the layers.** h9's `--archive` unpacks a whole archive into memory before the program starts, counted against `--memory`. That's fine for a small CLI but too slow and too large for an app with a runtime and `node_modules`, which can be hundreds of megabytes. So h9 needs a mount that serves an indexed tar read-only from a range of a host file, reading files as they're opened, decompressing the frame a file is in when the pack uses `zstd`, with writes going to the overlay above it: `--archive FILE@OFFSET+LENGTH`, or a `Machine.Options` mount kind the runner fills in. Until h9 has it, the runner falls back to `--archive` for packs under a size limit, and above it extracts the layers once into the user cache, keyed by the archive's digest, and mounts them with `--dir`.
+
+**Signing.** Adding the archive changes the executable, so the runner's own signature never survives, and h9x signs the result itself:
+
+- **macOS:** HVF refuses to start a VM without the `com.apple.security.hypervisor` entitlement, so every macOS executable must be signed with it. h9x ad-hoc signs by default, with the entitlement, using a port of the ad-hoc signer in Zig's own Mach-O linker. That works from any host and is enough to run on the machine that made it, or after `xattr -d com.apple.quarantine`. For anything downloaded, `--sign IDENTITY` signs with a Developer ID, using `codesign` on a Mac, and `--notarize` submits it with `notarytool` and staples the ticket. From Linux or CI, the same flags run [rcodesign](https://github.com/indygreg/apple-platform-rs) as a guest, given the certificate and an App Store Connect key as secrets by name, so a Linux CI job can make notarized macOS executables.
+- **Windows:** unsigned executables run but get SmartScreen's warning. `--sign` runs `osslsigncode` as a guest, or `signtool` on a Windows host, after the section is in place.
+- **Linux:** nothing to sign. h9x writes `SHA256SUMS` beside the executables, and the archive's digest is in its header.
+
+**Guest architecture.** The layers hold Linux binaries for one CPU: Wolfi's packages, mise's runtimes, and any native modules the build compiled. So a pack's targets fall into two groups by architecture, and h9x builds each group's layers once and joins them to each OS's runner: `--target all` builds amd64 layers for Linux, macOS, and Windows on amd64, and arm64 layers for the three on arm64. Layer keys gain the architecture, so the two sets cache side by side.
+
+Building for the other architecture runs the build steps on h9's emulator, which works but is much slower, especially for native modules. Two ways around it:
+
+- **Build on each architecture, pack anywhere.** `h9x build --arch arm64 -o app-arm64.h9` on an arm64 machine (or CI runner), and the same for amd64, then `h9x pack ./app-amd64.h9 ./app-arm64.h9 --target all` on either. The pack step picks each build by its architecture.
+- **One architecture everywhere.** `--guest-arch amd64` packs amd64 layers for every target. It saves a build, and suits a package with no arm64 release, but on arm64 hosts the app runs on the emulator, so it's a fallback, not the default.
+
+**Targets.** These are h9's release targets, and each needs a test pass of a packed app before h9x calls it supported:
+
+| Target | h9 build | Same-architecture guests run on | Status and gaps |
+| --- | --- | --- | --- |
+| `linux-amd64` | `x86_64-linux-musl`, static | KVM, or the emulator without `/dev/kvm` | The only platform h9x has run on |
+| `linux-arm64` | `aarch64-linux-musl`, static | KVM, or the emulator | Untried by h9x |
+| `macos-arm64` | `aarch64-macos` | HVF | Untried by h9x. Needs signing, as above. |
+| `macos-amd64` | None: h9 doesn't build or release it | Would be HVF on Intel | Needs an h9 target and a test pass first. Left out of `all` until then. |
+| `windows-amd64` | `x86_64-windows-gnu` | WHP, where the Windows Hypervisor Platform feature is on, or the emulator | Untried by h9x. h9 doesn't make symlinks in a Windows host's overlays, which some package managers do at run time. |
+| `windows-arm64` | `aarch64-windows-gnu` | The emulator: h9's WHP backend runs amd64 only | Untried, and slow until h9 runs arm64 on WHP |
+
+On a host with no usable hypervisor, the runner falls back to the emulator with h9's usual warning. The browser host takes the tar, not an executable, since a browser can't run either.
 
 ### cache
 
@@ -220,22 +286,29 @@ const art  = try builder.build(plan, .{ .out_dir = "bar.h9" });
 var m = try art.machine(.{ .stage = .run, .policy = h9x.Policy.untrusted });
 const status = try m.run(&.{});
 try art.exportOci(file.writer(), .{});
-try art.pack(file.writer());
+try art.pack(file.writer(), .{});                        // a tar, with its index
+try art.pack(exe.writer(), .{
+    .target = .{ .os = .macos, .arch = .aarch64 },        // the runner, from the cache or embedded
+    .sign = .adhoc,                                       // or .{ .identity = "Developer ID Application: ..." }
+    .compress = .{ .zstd = 3 },                           // or .none, the default
+});
 ```
 
 The main types are `Source` (a directory, git ref, or tarball, with its content hash), `Plan` (Railpack's plan plus the layer split and keys), `Layer` (name, key, digest, path), `Artifact` (the stacked layers, env, and start command), and `Policy` (h9 plan text, so it's printable and diffable).
 
-Other languages get two ways in. The simpler is the output directory and the `--json` event stream, which are a stable contract and enough for a PaaS or an editor. The other is a small C ABI (`h9x_build`, `h9x_run`, `h9x_export`) that takes and returns JSON, so Go, Python, and Node bindings stay thin and don't track Zig types.
+The runner is a second, much smaller program on the same code: h9's `Machine`, the tar index reader, and the section lookup, with none of `Builder`. Zig makes that cheap. Both programs are one `build.zig` with one cross-compiling release script, the runner's archive mount is a `Machine.Options` mount, and the Mach-O signer is a port of Zig's own. In Go, the runner would still have to be Zig or C to embed h9, so this is one more reason the library is Zig.
+
+Other languages get two ways in. The simpler is the output directory and the `--json` event stream, which are a stable contract and enough for a PaaS or an editor. The other is a small C ABI (`h9x_build`, `h9x_run`, `h9x_export`, `h9x_pack`) that takes and returns JSON, so Go, Python, and Node bindings stay thin and don't track Zig types.
 
 ## Distribution
 
-Ship one static binary per OS and architecture, with h9 linked in and the guest scripts embedded. Everything else downloads into the cache on first use, pinned by version and sha256 in the binary: Alpine's minirootfs, Railpack's release, and the Wolfi packages for the roots.
+Ship one static binary per OS and architecture, with h9 linked in, the guest scripts embedded, and the runner for its own target embedded. Everything else downloads into the cache on first use, pinned by version and sha256 in the binary: Alpine's minirootfs, Railpack's release, the Wolfi packages for the roots, and the other targets' runners, which are release assets of their own (`h9x-runner-<version>-<target>`).
 
 - **Channels:** GitHub releases, a Homebrew tap, and an install script. A container image is pointless for a tool whose job is avoiding Docker.
-- **macOS:** the binary needs the Hypervisor.framework entitlement and signing, which h9's build already does. Releases should be notarized.
+- **macOS:** the binary needs the Hypervisor.framework entitlement and signing, which h9's build already does. Releases should be notarized. The released runners are left unsigned, since `pack` re-signs every executable it makes anyway (see pack).
 - **Offline and CI:** `h9x fetch` warms the cache, and `h9x cache export` writes it to a tarball that a CI cache step can restore.
 - **Versioning:** a release pins Railpack, Alpine, and the root package set, so two people on the same release plan the same way. Bumping Railpack is a release, since its plans change.
-- **Platforms:** Linux x86\_64 is the only one tried. arm64 Linux and Apple Silicon need a test pass before release, and Windows waits on h9's Linux personality there.
+- **Platforms:** Linux x86\_64 is the only one tried. arm64 Linux and Apple Silicon need a test pass before release, and Windows needs one of h9's Linux personality there. Intel Macs need an h9 build first. The same matrix decides which targets `pack` can make (see pack's Targets table).
 
 ## Gaps against today's scripts
 
@@ -253,6 +326,12 @@ Today h9x is a POSIX shell script of about 430 lines plus three guest scripts, w
 | Config is environment variables only, and there's no lockfile. Wolfi versions float. | reproducibility | h9x |
 | Layers aren't deterministic tars (mtimes, ordering), and there's no image config, manifest, or push | export, verify | h9x |
 | The base root lives only in the cache, so the output isn't self-contained | pack, export | h9x |
+| No flattened tar with an index | pack | h9x |
+| No zstd frame writer, and h9's `--archive` reads tar and gzip only | `--compress zstd` | h9x, and h9 for zstd in `--archive` |
+| `--archive` unpacks into memory, and can't serve a range of a file | pack executables of any size | h9: an in-file archive mount |
+| No runner, section writer, or Mach-O ad-hoc signer | pack executables | h9x |
+| Layer keys don't include the architecture, and builds have no `--arch` | multi-platform packs | h9x |
+| h9 has no Intel Mac build, and runs arm64 on Windows only on the emulator | `macos-amd64`, `windows-arm64` packs | h9 |
 | No cache pruning or sharing. Unused runtimes stay forever. | cache | h9x |
 | Every source file is hashed on each build | large repos | h9x: hash by mtime and size first |
 | Dev dependencies aren't pruned | image size | Railpack's `RAILPACK_PRUNE_DEPS` |
@@ -266,8 +345,8 @@ Try the command surface in shell first, where it's cheap to change, and port to 
 
 1. **Surface, in shell.** Subcommands `run`, `build`, `shell`, and `plan`, git and tarball sources, `h9x.toml`, and `--json` events. Done when `h9x run <git url>` works for every Railpack example that builds today.
 2. **Tighter builds.** Registry allowlists, secrets by name, the lockfile with Wolfi versions, and deterministic layer tars. Done when builds pass with `--net=registries` and `verify` reproduces a layer digest.
-3. **Outputs.** `export` (OCI tarball and push), `pack`, and `cache` prune, push, and pull.
-4. **Zig port.** The library on h9's `Machine`, one static binary, the C ABI, and Linux arm64 and macOS releases.
+3. **Outputs.** `export` (OCI tarball and push), `pack` to a tar, and `cache` prune, push, and pull.
+4. **Zig port.** The library on h9's `Machine`, one static binary, the C ABI, and Linux arm64 and macOS releases. The runner, the section writers, ad-hoc signing, `--compress zstd`, and `--target` for every target in pack's table that has passed its test pass. Done when `h9x pack --target all` on Linux makes executables that run on each of them.
 5. **Untrusted-code launch.** Gated on the h9 sandbox audit, the h9 bugs behind any failing languages, and cold builds near Railpack's times.
 
 Open questions:
@@ -277,3 +356,7 @@ Open questions:
 - [ ] Should `shell` write back into the source by default, or copy-on-write unless `--rw`?
 - [ ] Is depending on Railpack's planner long-term acceptable, or should the plan format become h9x's own with Railpack as one producer?
 - [ ] Should packs carry the builder root too, so a pack can rebuild itself?
+- [ ] Should `--target all` include targets whose app runs only on the emulator (`windows-arm64`, and arm64 hosts with `--guest-arch amd64`), or leave them to be named?
+- [ ] Should one executable carry both architectures' layers, as a macOS universal binary does, or is one file per target simpler for everyone?
+- [ ] Should the runner check for a newer pack, or is updating the app's own job?
+- [ ] Should `--compress zstd` become the default for `--target`, once start-up with it is measured?

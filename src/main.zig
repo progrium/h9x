@@ -31,9 +31,17 @@ pub fn main(init: std.process.Init) !u8 {
 
     const parsed = cli.parse(arena, args[1..]) catch |e| switch (e) {
         error.Usage => {
+            const code = types.Exit.usage.code();
+            // With --json, the usage error is events too, ending in result.
+            if (events.wantsJson(args[1..])) {
+                var emitter: events.Emitter = .{ .w = &err.interface, .json = true };
+                emitter.log("{s}", .{if (cli.why.len > 0) cli.why else "usage error"});
+                emitter.result(args[1], code, null, 0);
+                return code;
+            }
             if (cli.why.len > 0) err.interface.print("h9x: {s}\n", .{cli.why}) catch {};
             err.interface.writeAll(cli.usage) catch {};
-            return types.Exit.usage.code();
+            return code;
         },
         error.OutOfMemory => return e,
     };
@@ -49,7 +57,7 @@ pub fn main(init: std.process.Init) !u8 {
         else => {},
     }
 
-    var emitter: events.Emitter = .{ .w = &err.interface, .json = parsed.common.json };
+    var emitter: events.Emitter = .{ .w = &err.interface, .json = parsed.common.json, .io = io };
     var ctx: cli.Context = .{
         .gpa = init.gpa,
         .arena = arena,
@@ -69,11 +77,11 @@ pub fn main(init: std.process.Init) !u8 {
             error.NotImplemented => emitter.log("{s} isn't implemented yet", .{name}),
             else => |x| emitter.log("{s}: {t}", .{ name, x }),
         }
-        break :blk types.Exit.failed.code();
+        break :blk events.exitFor(e).code();
     };
     out.interface.flush() catch {};
     const ms = start.untilNow(io, .awake).toMilliseconds();
-    emitter.emit(.{ .result = .{ .command = name, .status = status, .ms = @intCast(@max(ms, 0)) } });
+    emitter.result(name, status, null, @intCast(@max(ms, 0)));
     return status;
 }
 

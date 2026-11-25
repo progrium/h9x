@@ -1,0 +1,117 @@
+{
+  "railpackVersion": "0.43.0",
+  "plan": {
+    "steps": [
+      {
+        "name": "packages:mise",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-builder:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "path": "/mise/shims"
+          },
+          {
+            "path": "/etc/mise/config.toml",
+            "name": "generated-mise-toml",
+            "customName": "create mise config"
+          },
+          {
+            "cmd": "mise install",
+            "customName": "install mise packages: cmake, ninja"
+          }
+        ],
+        "assets": {
+          "generated-mise-toml": "[tools]\n  cmake = \"4.4.5\"\n  ninja = \"1.13.2\"\n\n[settings]\n  idiomatic_version_file_enable_tools = [\"python\", \"node\", \"ruby\", \"elixir\", \"go\", \"java\", \"yarn\", \"pnpm\", \"bun\", \"deno\", \"dotnet\", \"rust\"]\n  minimum_release_age = \"14d\"\n  paranoid = true\n  trusted_config_paths = [\"/app\"]\n  [settings.node]\n    verify = false\n"
+        },
+        "variables": {
+          "MISE_CACHE_DIR": "/mise/cache",
+          "MISE_CONFIG_DIR": "/mise",
+          "MISE_DATA_DIR": "/mise",
+          "MISE_INSTALLS_DIR": "/mise/installs",
+          "MISE_SHIMS_DIR": "/mise/shims"
+        }
+      },
+      {
+        "name": "build",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          },
+          {
+            "local": true,
+            "include": [
+              "."
+            ]
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "mkdir /build"
+          },
+          {
+            "cmd": "cmake -B /build -GNinja /app"
+          },
+          {
+            "cmd": "cmake --build /build"
+          }
+        ],
+        "secrets": [
+          "*"
+        ]
+      }
+    ],
+    "deploy": {
+      "base": {
+        "image": "ghcr.io/railwayapp/railpack-runtime:mise-2026.10.14"
+      },
+      "inputs": [
+        {
+          "step": "build",
+          "include": [
+            "/build/"
+          ]
+        }
+      ],
+      "startCommand": "/build/cpp-cmake",
+      "variables": {
+        "RAILPACK_VERSION": "0.43.0"
+      }
+    }
+  },
+  "resolvedPackages": {
+    "cmake": {
+      "name": "cmake",
+      "requestedVersion": "latest",
+      "resolvedVersion": "4.4.5",
+      "source": "railpack default"
+    },
+    "ninja": {
+      "name": "ninja",
+      "requestedVersion": "latest",
+      "resolvedVersion": "1.13.2",
+      "source": "railpack default"
+    }
+  },
+  "metadata": {
+    "providers": "cpp"
+  },
+  "detectedProviders": [
+    "cpp"
+  ],
+  "logs": [
+    {
+      "Level": "info",
+      "Msg": "Detected Cpp",
+      "DocsPath": ""
+    },
+    {
+      "Level": "suggestion",
+      "Msg": "Add a `.dockerignore` file to exclude files from the build",
+      "DocsPath": "/config/excluding-files"
+    }
+  ],
+  "success": true
+}

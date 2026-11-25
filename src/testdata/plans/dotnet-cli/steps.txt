@@ -1,0 +1,3 @@
+0 runtime packages:mise
+1 deps install
+2 app build

@@ -1,0 +1,11 @@
+runtime /mise/shims 
+runtime /mise/installs 
+runtime /usr/local/bin/mise 
+runtime /etc/mise/config.toml 
+runtime /root/.local/state/mise 
+app /app/node_modules 
+app /root/.cache /app/node_modules /app/.yarn
+app /app /app/node_modules /app/.yarn
+app /opt/corepack /app/node_modules /app/.yarn
+app /mise/installs /app/node_modules /app/.yarn
+app /mise/shims /app/node_modules /app/.yarn

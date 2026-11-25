@@ -1,0 +1,11 @@
+app /mise/shims 
+app /mise/installs 
+app /usr/local/bin/mise 
+app /etc/mise/config.toml 
+app /root/.local/state/mise 
+runtime /mise/shims 
+runtime /mise/installs 
+runtime /usr/local/bin/mise 
+runtime /etc/mise/config.toml 
+runtime /root/.local/state/mise 
+app /app/build/erlang-shipment 

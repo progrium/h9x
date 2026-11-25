@@ -1,0 +1,2 @@
+runtime /mise/installs/dotnet/8.0.404 
+app /app/out 

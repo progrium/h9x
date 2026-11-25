@@ -1,0 +1,114 @@
+{
+  "railpackVersion": "0.43.0",
+  "plan": {
+    "steps": [
+      {
+        "name": "packages:mise",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-builder:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "path": "/mise/shims"
+          },
+          {
+            "path": "/etc/mise/config.toml",
+            "name": "generated-mise-toml",
+            "customName": "create mise config"
+          },
+          {
+            "cmd": "mise install",
+            "customName": "install mise packages: zig"
+          }
+        ],
+        "assets": {
+          "generated-mise-toml": "[tools]\n  zig = \"0.17.1\"\n\n[settings]\n  idiomatic_version_file_enable_tools = [\"python\", \"node\", \"ruby\", \"elixir\", \"go\", \"java\", \"yarn\", \"pnpm\", \"bun\", \"deno\", \"dotnet\", \"rust\"]\n  minimum_release_age = \"14d\"\n  paranoid = true\n  trusted_config_paths = [\"/app\"]\n  [settings.node]\n    verify = false\n"
+        },
+        "variables": {
+          "MISE_CACHE_DIR": "/mise/cache",
+          "MISE_CONFIG_DIR": "/mise",
+          "MISE_DATA_DIR": "/mise",
+          "MISE_INSTALLS_DIR": "/mise/installs",
+          "MISE_SHIMS_DIR": "/mise/shims"
+        }
+      },
+      {
+        "name": "build",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          },
+          {
+            "local": true,
+            "include": [
+              "."
+            ]
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "zig build --release=safe"
+          }
+        ],
+        "secrets": [
+          "*"
+        ],
+        "caches": [
+          "zig"
+        ]
+      }
+    ],
+    "caches": {
+      "zig": {
+        "directory": "/root/.cache/zig",
+        "type": "shared"
+      }
+    },
+    "deploy": {
+      "base": {
+        "image": "ghcr.io/railwayapp/railpack-runtime:mise-2026.10.14"
+      },
+      "inputs": [
+        {
+          "step": "build",
+          "include": [
+            "zig-out/bin"
+          ]
+        }
+      ],
+      "startCommand": "./zig-out/bin/zig_example",
+      "variables": {
+        "RAILPACK_VERSION": "0.43.0"
+      }
+    }
+  },
+  "resolvedPackages": {
+    "zig": {
+      "name": "zig",
+      "requestedVersion": "latest",
+      "resolvedVersion": "0.17.1",
+      "source": "railpack default"
+    }
+  },
+  "metadata": {
+    "providers": "zig"
+  },
+  "detectedProviders": [
+    "zig"
+  ],
+  "logs": [
+    {
+      "Level": "info",
+      "Msg": "Detected Zig",
+      "DocsPath": ""
+    },
+    {
+      "Level": "suggestion",
+      "Msg": "Add a `.dockerignore` file to exclude files from the build",
+      "DocsPath": "/config/excluding-files"
+    }
+  ],
+  "success": true
+}

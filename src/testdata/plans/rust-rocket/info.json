@@ -1,0 +1,184 @@
+{
+  "railpackVersion": "0.43.0",
+  "plan": {
+    "steps": [
+      {
+        "name": "packages:mise",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-builder:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "path": "/mise/shims"
+          },
+          {
+            "src": "mise.toml",
+            "dest": "mise.toml"
+          },
+          {
+            "path": "/etc/mise/config.toml",
+            "name": "generated-mise-toml",
+            "customName": "create mise config"
+          },
+          {
+            "cmd": "mise install",
+            "customName": "install mise packages: rust"
+          }
+        ],
+        "assets": {
+          "generated-mise-toml": "[tools]\n  rust = \"1.100.0\"\n\n[settings]\n  idiomatic_version_file_enable_tools = [\"python\", \"node\", \"ruby\", \"elixir\", \"go\", \"java\", \"yarn\", \"pnpm\", \"bun\", \"deno\", \"dotnet\", \"rust\"]\n  minimum_release_age = \"14d\"\n  paranoid = true\n  trusted_config_paths = [\"/app\"]\n  [settings.node]\n    verify = false\n"
+        },
+        "variables": {
+          "MISE_CACHE_DIR": "/mise/cache",
+          "MISE_CONFIG_DIR": "/mise",
+          "MISE_DATA_DIR": "/mise",
+          "MISE_INSTALLS_DIR": "/mise/installs",
+          "MISE_SHIMS_DIR": "/mise/shims"
+        }
+      },
+      {
+        "name": "install",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          }
+        ],
+        "commands": [
+          {
+            "src": "Cargo.toml*",
+            "dest": "."
+          },
+          {
+            "src": "Cargo.lock*",
+            "dest": "."
+          },
+          {
+            "cmd": "mkdir -p src"
+          },
+          {
+            "path": "src/main.rs",
+            "name": "main.rs",
+            "customName": "compile dependencies"
+          },
+          {
+            "cmd": "cargo build --release"
+          },
+          {
+            "cmd": "rm -rf src target/release/rocket*"
+          }
+        ],
+        "secrets": [
+          "*"
+        ],
+        "assets": {
+          "main.rs": "fn main() { }"
+        },
+        "caches": [
+          "cargo_registry",
+          "cargo_git"
+        ]
+      },
+      {
+        "name": "build",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          },
+          {
+            "step": "install",
+            "exclude": [
+              "/app/"
+            ]
+          },
+          {
+            "local": true,
+            "include": [
+              "."
+            ]
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "mkdir -p bin"
+          },
+          {
+            "cmd": "cargo build --release"
+          },
+          {
+            "cmd": "cp target/release/rocket bin"
+          }
+        ],
+        "secrets": [
+          "*"
+        ],
+        "caches": [
+          "cargo_target"
+        ]
+      }
+    ],
+    "caches": {
+      "cargo_git": {
+        "directory": "/root/.cargo/git",
+        "type": "shared"
+      },
+      "cargo_registry": {
+        "directory": "/root/.cargo/registry",
+        "type": "shared"
+      },
+      "cargo_target": {
+        "directory": "target",
+        "type": "shared"
+      }
+    },
+    "deploy": {
+      "base": {
+        "image": "ghcr.io/railwayapp/railpack-runtime:mise-2026.10.14"
+      },
+      "inputs": [
+        {
+          "step": "build",
+          "include": [
+            "."
+          ],
+          "exclude": [
+            "target"
+          ]
+        }
+      ],
+      "startCommand": "./bin/rocket",
+      "variables": {
+        "RAILPACK_VERSION": "0.43.0",
+        "ROCKET_ADDRESS": "0.0.0.0"
+      }
+    }
+  },
+  "resolvedPackages": {
+    "rust": {
+      "name": "rust",
+      "requestedVersion": "1.100.0",
+      "resolvedVersion": "1.100.0",
+      "source": "mise.toml"
+    }
+  },
+  "metadata": {
+    "providers": "rust"
+  },
+  "detectedProviders": [
+    "rust"
+  ],
+  "logs": [
+    {
+      "Level": "info",
+      "Msg": "Detected Rust",
+      "DocsPath": ""
+    },
+    {
+      "Level": "suggestion",
+      "Msg": "Add a `.dockerignore` file to exclude files from the build",
+      "DocsPath": "/config/excluding-files"
+    }
+  ],
+  "success": true
+}

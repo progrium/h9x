@@ -1,0 +1,123 @@
+{
+  "railpackVersion": "0.43.0",
+  "plan": {
+    "steps": [
+      {
+        "name": "packages:mise",
+        "inputs": [
+          {
+            "image": "ghcr.io/railwayapp/railpack-builder:mise-2026.10.14"
+          }
+        ],
+        "commands": [
+          {
+            "path": "/mise/shims"
+          },
+          {
+            "src": ".deno-version",
+            "dest": ".deno-version"
+          },
+          {
+            "path": "/etc/mise/config.toml",
+            "name": "generated-mise-toml",
+            "customName": "create mise config"
+          },
+          {
+            "cmd": "mise install",
+            "customName": "install mise packages: deno"
+          }
+        ],
+        "assets": {
+          "generated-mise-toml": "[tools]\n  deno = \"2.2.2\"\n\n[settings]\n  idiomatic_version_file_enable_tools = [\"python\", \"node\", \"ruby\", \"elixir\", \"go\", \"java\", \"yarn\", \"pnpm\", \"bun\", \"deno\", \"dotnet\", \"rust\"]\n  minimum_release_age = \"14d\"\n  paranoid = true\n  trusted_config_paths = [\"/app\"]\n  [settings.node]\n    verify = false\n"
+        },
+        "variables": {
+          "MISE_CACHE_DIR": "/mise/cache",
+          "MISE_CONFIG_DIR": "/mise",
+          "MISE_DATA_DIR": "/mise",
+          "MISE_INSTALLS_DIR": "/mise/installs",
+          "MISE_SHIMS_DIR": "/mise/shims"
+        }
+      },
+      {
+        "name": "build",
+        "inputs": [
+          {
+            "step": "packages:mise"
+          },
+          {
+            "local": true,
+            "include": [
+              "."
+            ]
+          }
+        ],
+        "commands": [
+          {
+            "cmd": "deno cache main.ts"
+          }
+        ],
+        "secrets": [
+          "*"
+        ]
+      }
+    ],
+    "deploy": {
+      "base": {
+        "image": "ghcr.io/railwayapp/railpack-runtime:mise-2026.10.14"
+      },
+      "inputs": [
+        {
+          "step": "packages:mise",
+          "include": [
+            "/mise/shims",
+            "/mise/installs",
+            "/usr/local/bin/mise",
+            "/etc/mise/config.toml",
+            "/root/.local/state/mise"
+          ]
+        },
+        {
+          "step": "build",
+          "include": [
+            ".",
+            "/root/.cache"
+          ]
+        }
+      ],
+      "startCommand": "deno run --allow-all main.ts",
+      "variables": {
+        "RAILPACK_VERSION": "0.43.0"
+      }
+    },
+    "exclude": [
+      "node_modules"
+    ]
+  },
+  "resolvedPackages": {
+    "deno": {
+      "name": "deno",
+      "requestedVersion": "2.2.2",
+      "resolvedVersion": "2.2.2",
+      "source": "idiomatic-version-file"
+    }
+  },
+  "metadata": {
+    "providers": "deno"
+  },
+  "detectedProviders": [
+    "deno"
+  ],
+  "logs": [
+    {
+      "Level": "info",
+      "Msg": "Detected Deno",
+      "DocsPath": ""
+    },
+    {
+      "Level": "suggestion",
+      "Msg": "Applying default exclude patterns: `node_modules`. Add a `.dockerignore` to customize",
+      "DocsPath": "/config/excluding-files"
+    }
+  ],
+  "success": true
+}

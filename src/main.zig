@@ -126,5 +126,8 @@ test {
     _ = @import("exe/macho.zig");
     _ = @import("exe/pe.zig");
     _ = @import("exe/adhoc.zig");
+    _ = @import("runners.zig");
+    _ = @import("cmd/pack.zig");
+    _ = @import("cmd/export.zig");
     _ = cmd;
 }

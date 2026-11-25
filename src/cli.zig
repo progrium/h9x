@@ -19,7 +19,7 @@ pub const usage =
     \\  h9x shell [SOURCE] [--stage build|run] [--keep[=DIR]] [-- CMD ARGS...]
     \\  h9x plan [SOURCE] [--replan] [--json]
     \\  h9x pack [SOURCE|OUT.h9] [-o FILE|DIR] [--exe] [--target LIST|all]
-    \\          [--mount HOST:GUEST[:ro]] [--runner FILE] [--no-debug]
+    \\          [--mount HOST:GUEST[:ro]] [--runner [TARGET=]FILE] [--no-debug]
     \\  h9x pack --inspect FILE
     \\  h9x export [SOURCE|OUT.h9] (--oci FILE | --docker)
     \\  h9x cache ls
@@ -92,7 +92,8 @@ pub const PackOptions = struct {
     targets: []const types.Target = &.{},
     all_targets: bool = false,
     mounts: []const types.Mount = &.{},
-    runner: ?[]const u8 = null,
+    /// `--runner FILE` or `--runner TARGET=FILE`, each given.
+    runners: []const []const u8 = &.{},
     no_debug: bool = false,
     /// `--inspect FILE`: print a packed executable's trailer and pack.json.
     inspect: ?[]const u8 = null,
@@ -175,6 +176,7 @@ pub fn parse(arena: std.mem.Allocator, args: []const []const u8) Error!Parsed {
     var mounts: std.ArrayList(types.Mount) = .empty;
     var listen: std.ArrayList(u16) = .empty;
     var targets: std.ArrayList(types.Target) = .empty;
+    var runner_list: std.ArrayList([]const u8) = .empty;
     var positional: std.ArrayList([]const u8) = .empty;
 
     var run: RunOptions = .{};
@@ -251,7 +253,7 @@ pub fn parse(arena: std.mem.Allocator, args: []const []const u8) Error!Parsed {
                 else if (eql(flag, "--exe")) pack.exe = true //
                 else if (eql(flag, "--target")) try parseTargets(arena, try p.value(flag, inline_val), &targets, &pack.all_targets) //
                 else if (eql(flag, "--mount")) try mounts.append(arena, try parseMount(arena, try p.value(flag, inline_val))) //
-                else if (eql(flag, "--runner")) pack.runner = try p.value(flag, inline_val) //
+                else if (eql(flag, "--runner")) try runner_list.append(arena, try p.value(flag, inline_val)) //
                 else if (eql(flag, "--no-debug")) pack.no_debug = true //
                 else if (eql(flag, "--inspect")) pack.inspect = try p.value(flag, inline_val) //
                 else break :blk false;
@@ -301,6 +303,7 @@ pub fn parse(arena: std.mem.Allocator, args: []const []const u8) Error!Parsed {
         .pack => blk: {
             pack.source = source;
             pack.targets = targets.items;
+            pack.runners = runner_list.items;
             pack.mounts = mounts.items;
             if (pack.inspect != null and pos.len > 0) return fail("pack --inspect takes no SOURCE", .{}, arena);
             if ((targets.items.len > 0 or pack.all_targets) and !pack.exe) pack.exe = true;

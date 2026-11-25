@@ -81,7 +81,7 @@ pub fn main(init: std.process.Init) !u8 {
     };
     out.interface.flush() catch {};
     const ms = start.untilNow(io, .awake).toMilliseconds();
-    emitter.result(name, status, null, @intCast(@max(ms, 0)));
+    emitter.result(name, status, if (status == 0) ctx.result_out else null, @intCast(@max(ms, 0)));
     return status;
 }
 
@@ -112,6 +112,7 @@ test {
     _ = @import("toml.zig");
     _ = @import("policy.zig");
     _ = @import("roots.zig");
+    _ = @import("download.zig");
     _ = @import("wolfi.zig");
     _ = @import("plan.zig");
     _ = @import("layers.zig");

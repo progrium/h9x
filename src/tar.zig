@@ -615,8 +615,8 @@ test "flatten applies whiteouts and opaque directories" {
 
 test "long paths and link targets get a PAX header" {
     const io = testing.io;
-    const long = "d" ** 60 ++ "/" ++ "f" ** 70;
-    const target = "t" ** 150;
+    const long = repeat("d", 60) ++ "/" ++ repeat("f", 70);
+    const target = repeat("t", 150);
     var out: Io.Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
@@ -631,7 +631,7 @@ test "long paths and link targets get a PAX header" {
 
     const got = try listing(testing.allocator, out.written());
     defer testing.allocator.free(got);
-    try testing.expectEqualStrings("directory 755 " ++ "d" ** 60 ++ "/\nfile 600 " ++ long ++ " [data]\nsym_link 777 l -> " ++ target ++ "\n", got);
+    try testing.expectEqualStrings("directory 755 " ++ repeat("d", 60) ++ "/\nfile 600 " ++ long ++ " [data]\nsym_link 777 l -> " ++ target ++ "\n", got);
 }
 
 test "a path that climbs out is refused" {
@@ -651,7 +651,15 @@ test paxRecord {
     out.clearRetainingCapacity();
     // 98 bytes without the length, so the length's own digits push it to
     // three of them.
-    try paxRecord(&out.writer, "path", &.{"x" ** 91});
+    try paxRecord(&out.writer, "path", &.{repeat("x", 91)});
     try testing.expectEqual(@as(usize, 101), out.written().len);
     try testing.expect(std.mem.startsWith(u8, out.written(), "101 path="));
+}
+
+/// `s` `n` times, at comptime.
+fn repeat(comptime s: []const u8, comptime n: usize) *const [s.len * n]u8 {
+    comptime var out: [s.len * n]u8 = undefined;
+    inline for (0..n) |i| @memcpy(out[i * s.len ..][0..s.len], s);
+    const final = out;
+    return &final;
 }

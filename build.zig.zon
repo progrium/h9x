@@ -2,14 +2,14 @@
     .name = .h9x,
     .version = "0.0.0",
     .fingerprint = 0xe9df373e182eb49c, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.1",
     .dependencies = .{
         // h9's Machine library (docs/embedding.md in hyper9), pinned to a
         // commit of hyper9's main. Bump with
         // zig fetch --save=h9 git+https://github.com/progrium/hyper9#COMMIT
         .h9 = .{
-            .url = "git+https://github.com/progrium/hyper9#5d6088edf2018b5aa209745c0f93526bd60a2065",
-            .hash = "h9-0.0.0-jowMOiXiowCgOC5dBMc_uh-lYJYa8VlMhsTQkQXm_nab",
+            .url = "git+https://github.com/progrium/hyper9#ed8536005e932e6b8e8bc6ebeac2315baf4cc32a",
+            .hash = "h9-0.0.0-jowMOh3bpQAccZFCKnfbMaNsDtBiFfTPenHxAUvcwruV",
         },
     },
     .paths = .{

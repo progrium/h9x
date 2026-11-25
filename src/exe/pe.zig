@@ -257,7 +257,7 @@ test join {
     defer gpa.free(img);
     var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
-    const archive = "pe archive" ** 50;
+    const archive = repeat("pe archive", 50);
     var ar: std.Io.Reader = .fixed(archive);
     const l = try join(gpa, &aw.writer, img, &ar, archive.len);
     const out = aw.written();
@@ -284,4 +284,12 @@ test join {
 
     var ar2: std.Io.Reader = .fixed("x");
     try std.testing.expectError(error.AlreadyPacked, join(gpa, &aw.writer, out, &ar2, 1));
+}
+
+/// `s` `n` times, at comptime.
+fn repeat(comptime s: []const u8, comptime n: usize) *const [s.len * n]u8 {
+    comptime var out: [s.len * n]u8 = undefined;
+    inline for (0..n) |i| @memcpy(out[i * s.len ..][0..s.len], s);
+    const final = out;
+    return &final;
 }

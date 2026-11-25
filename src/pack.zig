@@ -34,7 +34,7 @@ pub const run_path = ".h9x/run";
 pub const Digest = [digest_prefix.len + 64]u8;
 const digest_prefix = "sha256:";
 /// What `write` puts in pack.json's `digest` until the archive is hashed.
-pub const zero_digest: Digest = (digest_prefix ++ "0" ** 64).*;
+pub const zero_digest: Digest = (digest_prefix ++ repeat("0", 64)).*;
 /// What comes before the digest's hex in pack.json's text.
 const digest_key = "\"digest\":\"" ++ digest_prefix;
 
@@ -282,7 +282,7 @@ pub fn seal(io: Io, file: Io.File, p: Opened) !Digest {
     var h = Sha256.init(.{});
     var buf: [256 * 1024]u8 = undefined;
     try hashRange(io, file, &h, p.offset, p.digest_at, &buf);
-    h.update("0" ** 64);
+    h.update(repeat("0", 64));
     try hashRange(io, file, &h, p.offset + p.digest_at + 64, p.len - p.digest_at - 64, &buf);
     var d: Digest = zero_digest;
     const hex = std.fmt.bytesToHex(h.finalResult(), .lower);
@@ -588,4 +588,12 @@ test "a pack with no start command takes one as arguments" {
     defer a.deinit();
     const s = try runScript(a.allocator(), .{ .arch = .amd64, .env = &.{}, .start = null, .policy = "", .layers = &.{} });
     try testing.expect(std.mem.indexOf(u8, s, "exec \"$@\"\n") != null);
+}
+
+/// `s` `n` times, at comptime.
+fn repeat(comptime s: []const u8, comptime n: usize) *const [s.len * n]u8 {
+    comptime var out: [s.len * n]u8 = undefined;
+    inline for (0..n) |i| @memcpy(out[i * s.len ..][0..s.len], s);
+    const final = out;
+    return &final;
 }

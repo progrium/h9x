@@ -1,8 +1,8 @@
 //! What `pack` and `export` work on: a build's output directory, with its
 //! artifact.json read and its paths made absolute.
 //!
-//! Owned by W8. A SOURCE that isn't a build's output is built first once
-//! `h9x build` works (W7); `resolve` is where that goes.
+//! A SOURCE that isn't a build's output is built first, with `h9x build`'s
+//! defaults.
 
 const std = @import("std");
 const cli = @import("../cli.zig");
@@ -10,6 +10,7 @@ const types = @import("../types.zig");
 const artifact = @import("../artifact.zig");
 const cache = @import("../cache.zig");
 const config = @import("../config.zig");
+const build = @import("build.zig");
 
 pub const Input = struct {
     /// The output directory, absolute.
@@ -25,35 +26,39 @@ pub const Input = struct {
 };
 
 /// SOURCE as a build's output. A directory with an artifact.json is one;
-/// anything else needs a build, which isn't wired up yet.
+/// anything else is built first.
 pub fn resolve(ctx: *cli.Context, source: []const u8) !Input {
     const arena = ctx.arena;
     const io = ctx.io;
-    const dir = std.Io.Dir.cwd().realPathFileAlloc(io, source, arena) catch |e| switch (e) {
-        error.FileNotFound => {
-            ctx.events.log("{s}: no such directory", .{source});
-            return error.BadSource;
-        },
-        else => |x| return x,
-    };
-    const art = artifact.read(arena, io, dir) catch |e| switch (e) {
-        error.NoArtifact => {
-            // W7: build SOURCE here and use its output.
-            ctx.events.log("{s} has no artifact.json; give a build's output directory until h9x build is wired up", .{source});
-            return error.NotImplemented;
-        },
-        error.BadArtifact, error.UnsupportedVersion => {
-            ctx.events.log("{s}/{s}: {t}", .{ source, artifact.json_file, e });
-            return error.BadConfig;
-        },
-        else => |x| return x,
-    };
+    if (std.Io.Dir.cwd().realPathFileAlloc(io, source, arena)) |dir| {
+        if (artifact.read(arena, io, dir)) |art| {
+            return fromOutput(ctx, dir, art, null);
+        } else |e| switch (e) {
+            error.NoArtifact => {},
+            error.BadArtifact, error.UnsupportedVersion => {
+                ctx.events.log("{s}/{s}: {t}", .{ source, artifact.json_file, e });
+                return error.BadConfig;
+            },
+            else => |x| return x,
+        }
+    } else |_| {}
+    const r = try build.build(ctx, .{ .source = source });
+    return fromOutput(ctx, r.out, r.artifact, .{ .cfg = r.env.cfg, .name = r.source.name });
+}
+
+const Built = struct { cfg: config.Config, name: []const u8 };
+
+fn fromOutput(ctx: *cli.Context, dir: []const u8, art: types.Artifact, built: ?Built) !Input {
+    const arena = ctx.arena;
+    const io = ctx.io;
     const cache_dir = try cache.dir(arena, ctx.env);
     const layers = try arena.alloc(types.Layer, art.layers.len);
     for (layers, art.layers) |*o, l| o.* = .{ .name = l.name, .key = l.key, .path = try artifact.resolvePath(arena, dir, cache_dir, l.path) };
     for (layers) |l| cache.touch(io, l.path);
     const base = try artifact.resolvePath(arena, dir, cache_dir, art.base.path);
     cache.touch(io, base);
+
+    if (built) |b| return .{ .dir = dir, .name = b.name, .art = art, .base = base, .layers = layers, .cfg = b.cfg };
 
     // The output directory has no h9x.toml of its own, so this is the
     // user's config and the environment.

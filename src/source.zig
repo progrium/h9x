@@ -27,6 +27,7 @@ const types = @import("types.zig");
 const cli = @import("cli.zig");
 const cache = @import("cache.zig");
 const machine = @import("machine.zig");
+const policy = @import("policy.zig");
 
 const Io = std.Io;
 const Dir = std.Io.Dir;
@@ -608,7 +609,8 @@ fn proxyEndpoint(p: []const u8) ?Endpoint {
 }
 
 /// The fetch machine's policy: the builder root read-only, the work
-/// directory writable at /h9x/src, and network to the source's host only.
+/// directory writable at /h9x/src, and network to the source's host only
+/// (or any host, while `policy.open_builds` is set).
 pub fn fetchPolicy(arena: std.mem.Allocator, builder: []const u8, work: []const u8, ep: Endpoint, https_proxy: ?[]const u8) error{OutOfMemory}!types.Policy {
     const mounts = try arena.dupe(types.Mount, &.{
         .{ .kind = .dir, .src = builder, .dst = "#L", .access = .ro },
@@ -619,7 +621,7 @@ pub fn fetchPolicy(arena: std.mem.Allocator, builder: []const u8, work: []const 
         .trust = .untrusted,
         .mounts = mounts,
         .net = .outbound,
-        .netallow = try netAllow(arena, ep, https_proxy),
+        .netallow = if (policy.open_builds) &.{} else try netAllow(arena, ep, https_proxy),
         .write = .overlay,
         .memory = 1 << 30,
         .timeout_ns = 10 * std.time.ns_per_min,
@@ -811,7 +813,10 @@ test "fetchPolicy compiles to machine options" {
     try std.testing.expectEqualStrings("#L/h9x/src", o.mounts[1].dst);
     try std.testing.expect(o.mounts[1].access.? == .rw);
     try std.testing.expectEqual(h9.policy.NetMode.outbound, o.policy.net.?);
-    try std.testing.expectEqualStrings("tcp!github.com!443", o.policy.net_allow[0]);
+    if (policy.open_builds)
+        try std.testing.expectEqual(@as(usize, 0), o.policy.net_allow.len)
+    else
+        try std.testing.expectEqualStrings("tcp!github.com!443", o.policy.net_allow[0]);
 }
 
 test hashDir {
@@ -855,7 +860,7 @@ test hashDir {
     try tmp.dir.setTimestamps(io, "app/package.json", .{ .modify_timestamp = .{ .new = old } });
     const h4 = try hashDir(std.testing.allocator, io, app, index, &.{"app.h9"});
     var fake: std.ArrayList(u8) = .empty;
-    try fake.print(ar, "2 {d} {s} package.json\n", .{ old.nanoseconds, "f" ** 64 });
+    try fake.print(ar, "2 {d} {s} package.json\n", .{ old.nanoseconds, repeat("f", 64) });
     try tmp.dir.writeFile(io, .{ .sub_path = "index", .data = fake.items });
     const h5 = try hashDir(std.testing.allocator, io, app, index, &.{"app.h9"});
     try std.testing.expect(!std.mem.eql(u8, &h4, &h5));
@@ -880,4 +885,12 @@ test keepTree {
     try tmp.dir.createDirPath(io, "out2/tree/other");
     try keepTree(io, ar, try std.fs.path.join(ar, &.{ root, "out2/tree" }), trees, "abc", true);
     try tmp.dir.access(io, "tree/abc/package.json", .{});
+}
+
+/// `s` `n` times, at comptime.
+fn repeat(comptime s: []const u8, comptime n: usize) *const [s.len * n]u8 {
+    comptime var out: [s.len * n]u8 = undefined;
+    inline for (0..n) |i| @memcpy(out[i * s.len ..][0..s.len], s);
+    const final = out;
+    return &final;
 }

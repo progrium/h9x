@@ -153,20 +153,24 @@ pub fn load(ctx: *cli.Context, source: types.Source) !Config {
     return cfg;
 }
 
-/// `load`, without a context: `dir` is the source's tree.
+/// `load`, without a context: `dir` is the source's tree, or null when
+/// it isn't known yet (a remote source before it's fetched), which reads
+/// the user's config and the environment only.
 pub fn loadFrom(
     arena: std.mem.Allocator,
     io: std.Io,
     env: *const std.process.Environ.Map,
-    dir: []const u8,
+    dir: ?[]const u8,
     diag: *Diag,
 ) (Error || std.Io.Dir.ReadFileAllocError)!Config {
     var parts: std.ArrayList(Part) = .empty;
     if (try userPath(arena, env)) |path| {
         if (try readOptional(arena, io, path)) |text| try parts.append(arena, try parsePart(arena, .user, path, text, diag));
     }
-    const path = try std.fs.path.join(arena, &.{ dir, source_file });
-    if (try readOptional(arena, io, path)) |text| try parts.append(arena, try parsePart(arena, .source, path, text, diag));
+    if (dir) |d| {
+        const path = try std.fs.path.join(arena, &.{ d, source_file });
+        if (try readOptional(arena, io, path)) |text| try parts.append(arena, try parsePart(arena, .source, path, text, diag));
+    }
     var warnings: std.ArrayList([]const u8) = .empty;
     try parts.append(arena, try fromEnv(arena, env, diag, &warnings));
     var cfg = merge(parts.items);

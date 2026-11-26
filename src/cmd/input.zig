@@ -23,16 +23,30 @@ pub const Input = struct {
     /// The run layers, bottom first, with absolute paths.
     layers: []const types.Layer,
     cfg: config.Config,
+    /// Whether it was built from a git or tarball source just now, which
+    /// runs untrusted unless `--trust` is given. A build's output given by
+    /// path is the person's own, and trusted.
+    remote: bool = false,
 };
 
 /// SOURCE as a build's output. A directory with an artifact.json is one;
 /// anything else is built first.
 pub fn resolve(ctx: *cli.Context, source: []const u8) !Input {
+    if (try output(ctx, source)) |in| return in;
+    const r = try build.build(ctx, .{ .source = source });
+    var in = try fromOutput(ctx, r.out, r.artifact, .{ .cfg = r.env.cfg, .name = r.source.name });
+    in.remote = r.source.remote();
+    return in;
+}
+
+/// SOURCE as a build's output, if it's a directory with an artifact.json;
+/// null otherwise.
+pub fn output(ctx: *cli.Context, source: []const u8) !?Input {
     const arena = ctx.arena;
     const io = ctx.io;
     if (std.Io.Dir.cwd().realPathFileAlloc(io, source, arena)) |dir| {
         if (artifact.read(arena, io, dir)) |art| {
-            return fromOutput(ctx, dir, art, null);
+            return try fromOutput(ctx, dir, art, null);
         } else |e| switch (e) {
             error.NoArtifact => {},
             error.BadArtifact, error.UnsupportedVersion => {
@@ -42,8 +56,7 @@ pub fn resolve(ctx: *cli.Context, source: []const u8) !Input {
             else => |x| return x,
         }
     } else |_| {}
-    const r = try build.build(ctx, .{ .source = source });
-    return fromOutput(ctx, r.out, r.artifact, .{ .cfg = r.env.cfg, .name = r.source.name });
+    return null;
 }
 
 const Built = struct { cfg: config.Config, name: []const u8 };

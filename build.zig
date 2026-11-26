@@ -25,6 +25,14 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption([]const u8, "version", version);
 
+    // h9's CLI reads stdin for the console this way, cancellably: the
+    // runner, run, and shell do too.
+    const h9_stdin = b.createModule(.{
+        .root_source_file = h9.path("src/stdin.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // h9x-runner: h9, the pack reader, and the container lookup, through
     // the `h9x` module (src/root.zig), with none of the builder.
     const shared = b.createModule(.{
@@ -41,11 +49,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "h9", .module = h9_mod },
             .{ .name = "h9x", .module = shared },
             // h9's CLI reads stdin for the console this way, cancellably.
-            .{ .name = "h9_stdin", .module = b.createModule(.{
-                .root_source_file = h9.path("src/stdin.zig"),
-                .target = target,
-                .optimize = optimize,
-            }) },
+            .{ .name = "h9_stdin", .module = h9_stdin },
         },
     });
     const runner = b.addExecutable(.{ .name = "h9x-runner", .root_module = runner_mod });
@@ -60,7 +64,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "h9", .module = h9_mod }},
+        .imports = &.{
+            .{ .name = "h9", .module = h9_mod },
+            // run and shell read stdin for the guest's console as h9's CLI does.
+            .{ .name = "h9_stdin", .module = h9_stdin },
+        },
     });
     mod.addOptions("build_options", options);
     mod.addAnonymousImport("build_sh", .{ .root_source_file = b.path("guest/build.sh") });

@@ -47,8 +47,6 @@ pub const FailedError = error{
     StepFailed,
     /// Railpack made no build steps.
     NoSteps,
-    /// A stubbed command (the skeleton). Goes away with the stubs.
-    NotImplemented,
 };
 
 /// Errors that are exit 124, as h9's.
@@ -120,6 +118,14 @@ pub const Emitter = struct {
     pub fn fail(e: *Emitter, err: anyerror, comptime fmt: []const u8, args: anytype) u8 {
         e.log(fmt, args);
         return exitFor(err).code();
+    }
+
+    /// Logs why a command failed and returns `err`, for
+    /// `return ctx.events.failErr(error.Usage, "...", .{})` in a function
+    /// that returns an error union.
+    pub fn failErr(e: *Emitter, err: anytype, comptime fmt: []const u8, args: anytype) @TypeOf(err) {
+        e.log(fmt, args);
+        return err;
     }
 
     /// The `result` that ends a command.

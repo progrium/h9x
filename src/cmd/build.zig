@@ -23,6 +23,7 @@ const artifact = @import("../artifact.zig");
 const Dir = std.Io.Dir;
 
 pub fn run(ctx: *cli.Context, opts: cli.BuildOptions) !u8 {
+    if (ctx.common.print) return @import("print.zig").phases(ctx, .{ .source = opts.source, .command = .build, .out = opts.out });
     if (opts.poc) ctx.events.log("warning: h9x [-o OUT] DIR is deprecated; use h9x build DIR [-o OUT]", .{});
     const r = try build(ctx, .{ .source = opts.source, .out = opts.out, .replan = opts.replan });
     ctx.result_out = r.out;
@@ -44,6 +45,10 @@ pub const Result = struct {
     artifact: types.Artifact,
     env: roots.Env,
     plan: types.Plan,
+    /// The builder root the layers were built on, for `shell`.
+    builder: types.Root,
+    /// Every layer, built or kept, bottom first, with absolute paths.
+    all: [3]types.Layer,
 };
 
 /// The builder root for fetching a remote source, before the source's
@@ -57,6 +62,48 @@ fn fetchBuilder(ctx: *cli.Context) anyerror![]const u8 {
 }
 
 pub fn build(ctx: *cli.Context, o: Options) !Result {
+    const pr = try prepare(ctx, o);
+    return finish(pr);
+}
+
+/// What a build has made by the time it has a plan: the source, its
+/// config, the output directory, the roots, and the plan. `h9x plan` stops
+/// here; `build` goes on with `finish`.
+pub const Prepared = struct {
+    ctx: *cli.Context,
+    /// The output directory, absolute.
+    out: []const u8,
+    cache_dir: []const u8,
+    source: types.Source,
+    env: roots.Env,
+    boot: roots.Bootstrap,
+    builder: types.Root,
+    tools: []const u8,
+    guest_dir: []const u8,
+    /// A guest path under the source to hide: the output directory, when
+    /// it's inside the source.
+    hide: ?[]const u8,
+    plan: types.Plan,
+};
+
+/// The output directory a build of `spec` writes, when it can be known
+/// without fetching: `-o`'s, or `NAME.h9` in the cwd for a directory.
+/// Null for a remote source without `-o`, whose output is keyed by what
+/// it fetches.
+pub fn defaultOut(ctx: *cli.Context, spec: []const u8, given: ?[]const u8) !?[]const u8 {
+    const a = ctx.arena;
+    const io = ctx.io;
+    if (given) |x| return try absolute(a, io, x);
+    const parsed = source.parse(a, spec) catch null;
+    if (parsed == null or parsed.? == .dir) {
+        if (Dir.cwd().realPathFileAlloc(io, spec, a)) |abs| {
+            return try absolute(a, io, try std.fmt.allocPrint(a, "{s}.h9", .{std.fs.path.basename(abs)}));
+        } else |_| {}
+    }
+    return null;
+}
+
+pub fn prepare(ctx: *cli.Context, o: Options) !Prepared {
     const a = ctx.arena;
     const io = ctx.io;
     const cwd = Dir.cwd();
@@ -64,13 +111,7 @@ pub fn build(ctx: *cli.Context, o: Options) !Result {
 
     // A directory source's output is decided first, so its hash and the
     // build's machines can leave it out when it's inside the source.
-    var out: ?[]const u8 = if (o.out) |x| try absolute(a, io, x) else null;
-    const parsed = source.parse(a, o.source) catch null;
-    if (out == null and (parsed == null or parsed.? == .dir)) {
-        if (cwd.realPathFileAlloc(io, o.source, a)) |abs| {
-            out = try absolute(a, io, try std.fmt.allocPrint(a, "{s}.h9", .{std.fs.path.basename(abs)}));
-        } else |_| {}
-    }
+    var out: ?[]const u8 = try defaultOut(ctx, o.source, o.out);
     const src = source.resolve(ctx, o.source, .{
         .builder = &fetchBuilder,
         .exclude = if (out) |x| try a.dupe([]const u8, &.{x}) else &.{},
@@ -123,42 +164,65 @@ pub fn build(ctx: *cli.Context, o: Options) !Result {
         .replan = o.replan or cfg.replan,
     });
 
-    // The plan's apt packages, as Wolfi packages in the roots: the build
-    // ones in the builder, and the runtime ones in the base root.
+    // The plan's build packages, as Wolfi packages in the builder root.
     if (p.apt_build.len > 0) {
         ctx.events.log("build packages: {s}", .{try std.mem.join(a, " ", p.apt_build)});
         builder = try roots.make(env, boot, .builder, try roots.packagesFor(env, .builder, try wolfi.names(a, p.apt_build)));
     }
-    const base = try roots.make(env, boot, .base, try roots.packagesFor(env, .base, try wolfi.names(a, p.apt_runtime)));
+    return .{
+        .ctx = ctx,
+        .out = out_dir,
+        .cache_dir = cache_dir,
+        .source = src,
+        .env = env,
+        .boot = boot,
+        .builder = builder,
+        .tools = tools,
+        .guest_dir = guest_dir,
+        .hide = hide,
+        .plan = p,
+    };
+}
+
+/// The rest of a build: the base root with the plan's runtime packages,
+/// the layers, and the artifact.
+pub fn finish(pr: Prepared) !Result {
+    const ctx = pr.ctx;
+    const a = ctx.arena;
+    const io = ctx.io;
+    const env = pr.env;
+    const p = pr.plan;
+    const out_dir = pr.out;
+    const base = try roots.make(env, pr.boot, .base, try roots.packagesFor(env, .base, try wolfi.names(a, p.apt_runtime)));
 
     ctx.events.emit(.{ .phase = .{ .phase = .build, .state = .start } });
     const built = try layers.build(.{
         .env = env,
         .plan = p,
-        .source = src,
-        .builder = builder,
+        .source = pr.source,
+        .builder = pr.builder,
         .out = out_dir,
-        .tools = tools,
-        .guest_dir = guest_dir,
-        .hide = hide,
+        .tools = pr.tools,
+        .guest_dir = pr.guest_dir,
+        .hide = pr.hide,
     });
     ctx.events.emit(.{ .phase = .{ .phase = .build, .state = .done } });
 
     // artifact.json: the base root and the layers the run stacks.
     var stack: std.ArrayList(types.Layer) = .empty;
     for (built.stack) |name| for (built.all) |l| if (l.name == name) {
-        try stack.append(a, .{ .name = l.name, .key = l.key, .path = try artifact.storedPath(a, out_dir, cache_dir, l.path) });
+        try stack.append(a, .{ .name = l.name, .key = l.key, .path = try artifact.storedPath(a, out_dir, pr.cache_dir, l.path) });
     };
     const art: types.Artifact = .{
         .arch = env.arch,
-        .base = .{ .path = try artifact.storedPath(a, out_dir, cache_dir, base.path), .packages = base.packages },
+        .base = .{ .path = try artifact.storedPath(a, out_dir, pr.cache_dir, base.path), .packages = base.packages },
         .layers = stack.items,
         .env = built.env,
         .start = p.start,
     };
     try artifact.write(a, io, out_dir, art);
     try artifact.writeRun(a, io, out_dir);
-    return .{ .out = out_dir, .source = src, .artifact = art, .env = env, .plan = p };
+    return .{ .out = out_dir, .source = pr.source, .artifact = art, .env = env, .plan = p, .builder = pr.builder, .all = built.all };
 }
 
 /// `p` made absolute against the cwd, without needing it to exist.

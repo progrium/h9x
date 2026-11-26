@@ -317,6 +317,21 @@ pub fn bootstrap(e: Env) !Bootstrap {
     return .{ .alpine = dir, .key_file = key_file };
 }
 
+/// Where Railpack's binary is or would be, without fetching it, for
+/// `--print`.
+pub fn railpackPath(e: Env) ![]const u8 {
+    if (e.cfg.railpack) |r| return r;
+    const name = try std.fmt.allocPrint(e.ctx.arena, "railpack-{s}-{s}", .{ railpack_version, e.arch.linuxName() });
+    return std.fs.path.join(e.ctx.arena, &.{ try e.path(.tools, name), "railpack" });
+}
+
+/// Where the guest scripts are or would be, without writing them, for
+/// `--print`.
+pub fn guestPath(e: Env) ![]const u8 {
+    const h = try shortHash(e.ctx.arena, embedded.build_sh);
+    return e.path(.tools, try std.fmt.allocPrint(e.ctx.arena, "guest-{s}", .{h}));
+}
+
 /// Railpack's binary: `H9X_RAILPACK`, or the pinned release in the tools.
 pub fn railpack(e: Env) ![]const u8 {
     const ctx = e.ctx;

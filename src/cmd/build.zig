@@ -36,6 +36,12 @@ pub const Options = struct {
     out: ?[]const u8 = null,
     /// Plan again even when the source hasn't changed.
     replan: bool = false,
+    /// The source, already resolved, for the library: `source` is then
+    /// only its spec.
+    resolved: ?types.Source = null,
+    /// Without `out`, write to `$cache/builds/KEY` for a directory source
+    /// too, rather than `NAME.h9` in the cwd: the library's default.
+    cache_out: bool = false,
 };
 
 pub const Result = struct {
@@ -111,8 +117,8 @@ pub fn prepare(ctx: *cli.Context, o: Options) !Prepared {
 
     // A directory source's output is decided first, so its hash and the
     // build's machines can leave it out when it's inside the source.
-    var out: ?[]const u8 = try defaultOut(ctx, o.source, o.out);
-    const src = source.resolve(ctx, o.source, .{
+    var out: ?[]const u8 = if (o.cache_out and o.out == null) null else try defaultOut(ctx, o.source, o.out);
+    const src = if (o.resolved) |r| r else source.resolve(ctx, o.source, .{
         .builder = &fetchBuilder,
         .exclude = if (out) |x| try a.dupe([]const u8, &.{x}) else &.{},
     }) catch |e| return switch (e) {

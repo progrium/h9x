@@ -131,5 +131,6 @@ test {
     _ = @import("cmd/export.zig");
     _ = @import("cmd/print.zig");
     _ = @import("session.zig");
+    _ = @import("root.zig");
     _ = cmd;
 }

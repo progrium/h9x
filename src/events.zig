@@ -92,6 +92,14 @@ pub const Emitter = struct {
     /// Set once `result` is written; later events are dropped, so `result`
     /// is always the last line.
     ended: bool = false,
+    /// Where events go instead of `w`, for the library's `on_event`. Set
+    /// `json` with it, so a machine's output arrives as `output` events.
+    sink: ?Sink = null,
+
+    pub const Sink = struct {
+        ctx: ?*anyopaque,
+        func: *const fn (ctx: ?*anyopaque, ev: Event) void,
+    };
 
     pub fn emit(e: *Emitter, ev: Event) void {
         e.lock();
@@ -102,6 +110,7 @@ pub const Emitter = struct {
     fn emitLocked(e: *Emitter, ev: Event) void {
         if (e.ended) return;
         if (ev == .result) e.ended = true;
+        if (e.sink) |s| return s.func(s.ctx, ev);
         e.write(ev) catch {};
         e.w.flush() catch {};
     }

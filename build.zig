@@ -34,9 +34,9 @@ pub fn build(b: *std.Build) void {
     });
 
     // h9x-runner: h9, the pack reader, and the container lookup, through
-    // the `h9x` module (src/root.zig), with none of the builder.
+    // the `h9x` module (src/shared.zig), with none of the builder.
     const shared = b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/shared.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{.{ .name = "h9", .module = h9_mod }},
@@ -70,10 +70,23 @@ pub fn build(b: *std.Build) void {
             .{ .name = "h9_stdin", .module = h9_stdin },
         },
     });
-    mod.addOptions("build_options", options);
-    mod.addAnonymousImport("build_sh", .{ .root_source_file = b.path("guest/build.sh") });
-    mod.addAnonymousImport("roots_sh", .{ .root_source_file = b.path("guest/roots.sh") });
-    mod.addAnonymousImport("h9x_runner", .{ .root_source_file = runner.getEmittedBin() });
+    // The library (src/root.zig), for embedders: `b.dependency("h9x",
+    // ...).module("h9x")`. Same tree as the CLI, which is its client.
+    const lib = b.addModule("h9x", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "h9", .module = h9_mod },
+            .{ .name = "h9_stdin", .module = h9_stdin },
+        },
+    });
+    for ([_]*std.Build.Module{ mod, lib }) |m| {
+        m.addOptions("build_options", options);
+        m.addAnonymousImport("build_sh", .{ .root_source_file = b.path("guest/build.sh") });
+        m.addAnonymousImport("roots_sh", .{ .root_source_file = b.path("guest/roots.sh") });
+        m.addAnonymousImport("h9x_runner", .{ .root_source_file = runner.getEmittedBin() });
+    }
     const exe = b.addExecutable(.{ .name = "h9x", .root_module = mod });
     macos(b, exe, os);
 

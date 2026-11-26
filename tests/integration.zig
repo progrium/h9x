@@ -154,6 +154,10 @@ fn sha256File(path: []const u8) ![64]u8 {
 /// How an example shows it runs: its output, or a page it serves.
 const Check = union(enum) {
     output: []const []const u8,
+    /// Output from an app that listens, as an Erlang release does for its
+    /// node name, so it runs with `--net enable`. It runs until stopped, so
+    /// it gets a minute.
+    listening: []const []const u8,
     http: struct { port: u16, path: []const u8 = "/", expect: []const []const u8, env: []const u8 = "" },
 };
 
@@ -169,7 +173,7 @@ const examples_table = [_]struct { []const u8, Check }{
     .{ "ruby-latest", .{ .output = &.{"Ruby version: 4."} } },
     .{ "cpp-cmake", .{ .output = &.{"Hello from C++"} } },
     .{ "gleam", .{ .output = &.{"Hello from app_gleam!"} } },
-    .{ "elixir-latest", .{ .output = &.{"hello from elixir"} } },
+    .{ "elixir-latest", .{ .listening = &.{"hello from elixir"} } },
     .{ "rust-rocket", .{ .http = .{ .port = 8000, .expect = &.{"Hello, from Rocket!"} } } },
     .{ "zig", .{ .output = &.{"Hello from Zig"} } },
     .{ "dotnet-cli", .{ .output = &.{"Hello from dotnet 6.0.36"} } },
@@ -184,19 +188,30 @@ fn check(out: []const u8, c: Check) !Result {
             for (want) |w| if (!r.has(w)) return failed(r, w);
             return r;
         },
+        .listening => |want| {
+            const r = try run(&.{ "h9x", "run", out, "--net", "enable", "--timeout", "1m" }, .{});
+            for (want) |w| if (!r.has(w)) return failed(r, w);
+            return r;
+        },
         .http => |h| {
-            // The server in the background, and wget until it answers.
+            // The server in the background, and curl from the host until
+            // it answers.
+            const log = try std.fmt.allocPrint(arena, "{s}.server.log", .{out});
             const script = try std.fmt.allocPrint(arena,
-                \\{s}sh -c "$H9X_START" >/tmp/server.log 2>&1 &
+                \\"$H9X_BIN" run "$1" --listen {d} --timeout 5m -- sh -c '{s}exec sh -c "$H9X_START"' >"$2" 2>&1 &
+                \\pid=$!
                 \\i=0
-                \\while [ $i -lt 120 ]; do
-                \\  if wget -qO- http://127.0.0.1:{d}{s}; then exit 0; fi
+                \\while [ $i -lt 180 ]; do
+                \\  if curl -sf --noproxy "*" --max-time 2 http://127.0.0.1:{d}{s}; then kill $pid; wait $pid; exit 0; fi
+                \\  kill -0 $pid 2>/dev/null || break
                 \\  sleep 1; i=$((i+1))
                 \\done
-                \\cat /tmp/server.log >&2
+                \\kill $pid 2>/dev/null
+                \\cat "$2" >&2
                 \\exit 1
-            , .{ h.env, h.port, h.path });
-            const r = try run(&.{ "h9x", "run", out, "--listen", try std.fmt.allocPrint(arena, "{d}", .{h.port}), "--timeout", "5m", "--", "sh", "-c", script }, .{});
+            , .{ h.port, h.env, h.port, h.path });
+            const bin = try Io.Dir.cwd().realPathFileAlloc(std.testing.io, opts.h9x, arena);
+            const r = try run(&.{ "sh", "-c", script, "sh", out, log }, .{ .env = &.{.{ "H9X_BIN", bin }} });
             for (h.expect) |w| if (!r.has(w)) return failed(r, w);
             return r;
         },

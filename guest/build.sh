@@ -29,7 +29,7 @@ log() { echo "h9x: $*" >&2; }
 v=$(jq -r '[.steps[].inputs[]?.image // empty | capture("mise-(?<v>[0-9.]+)").v][0] // empty' "$P")
 mise=/h9x/tools/mise-$v
 [ -n "$v" ] && [ -x "$mise" ] || mise=$(ls /h9x/tools/mise-* 2>/dev/null | tail -1)
-[ -n "$mise" ] || { log "no mise in the tools; did plan.sh run?"; exit 1; }
+[ -n "$mise" ] || { log "no mise in the tools; did the plan phase run?"; exit 1; }
 mkdir -p /tmp/bin
 ln -sf "$mise" /tmp/bin/mise
 export PATH=/tmp/bin:/usr/local/bin:/usr/bin:/bin

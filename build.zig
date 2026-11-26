@@ -139,7 +139,8 @@ pub fn build(b: *std.Build) void {
         .{ "fixture_macho", "aarch64-macos" },
         .{ "fixture_pe", "x86_64-windows-gnu" },
     };
-    for (fixtures) |f| {
+    var exe_fixtures: [2]*std.Build.Step.Compile = undefined;
+    for (fixtures, 0..) |f, i| {
         const fixture = b.addExecutable(.{ .name = f[0], .root_module = b.createModule(.{
             .root_source_file = b.path("src/exe/testdata/runner.zig"),
             .target = b.resolveTargetQuery(std.Target.Query.parse(.{ .arch_os_abi = f[1] }) catch unreachable),
@@ -147,6 +148,7 @@ pub fn build(b: *std.Build) void {
             .strip = true,
         }) });
         fixture.headerpad_size = macho_headerpad;
+        if (i > 0) exe_fixtures[i - 1] = fixture;
         exe_test_mod.addAnonymousImport(f[0], .{ .root_source_file = fixture.getEmittedBin() });
     }
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = exe_test_mod })).step);
@@ -163,6 +165,36 @@ pub fn build(b: *std.Build) void {
     macos(b, runner_test, os);
     // The runner is signed when it's joined, so the test runs it as is.
     test_step.dependOn(&b.addRunArtifact(runner_test).step);
+
+    // The integration cases (tests/integration.zig): the h9x built here,
+    // run on Railpack's examples. Slow and networked, so a step of their
+    // own.
+    const integration_step = b.step("integration", "Run the integration tests on Railpack's examples (slow; needs the network)");
+    const lib_example = b.addExecutable(.{ .name = "lib_example", .root_module = b.createModule(.{
+        .root_source_file = b.path("tests/lib_example.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "h9x", .module = lib }},
+    }) });
+    macos(b, lib_example, os);
+    const io_opts = b.addOptions();
+    io_opts.addOptionPath("h9x", exe.getEmittedBin());
+    io_opts.addOptionPath("h9", h9.artifact("h9").getEmittedBin());
+    io_opts.addOptionPath("lib_example", lib_example.getEmittedBin());
+    io_opts.addOptionPath("runner_pe", exe_fixtures[1].getEmittedBin());
+    io_opts.addOptionPath("runner_macho", exe_fixtures[0].getEmittedBin());
+    io_opts.addOption([]const u8, "work", b.option([]const u8, "integration-dir", "Where the integration tests copy and build examples (default: .zig-cache/integration)") orelse ".zig-cache/integration");
+    const integration_mod = b.createModule(.{
+        .root_source_file = b.path("tests/integration.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    integration_mod.addOptions("integration_options", io_opts);
+    const integration = b.addRunArtifact(b.addTest(.{ .root_module = integration_mod }));
+    integration.has_side_effects = true;
+    // A relative integration-dir is from the repository's root.
+    integration.setCwd(b.path("."));
+    integration_step.dependOn(&integration.step);
 
     // The design tool (design/README.md, The tool), run from the
     // repository root: zig build design -- <command>.

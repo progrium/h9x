@@ -48,6 +48,9 @@ pub const Config = struct {
     pub const Run = struct {
         /// Plan lines that narrow the run's policy.
         policy: ?[]const u8 = null,
+        /// Remote sources the person trusts, as `--trust` does: prefixes of
+        /// a SOURCE as given or of its URL. Only the user's config sets it.
+        trusted: []const []const u8 = &.{},
     };
     pub const Pack = struct {
         mount: []const []const u8 = &.{},
@@ -78,6 +81,24 @@ pub const Config = struct {
     parts: []const Part = &.{},
 };
 
+/// Whether `[run] trusted` names a remote source: a prefix of its SOURCE
+/// as given, or of the URL it's fetched from.
+pub fn trusts(cfg: Config, spec: []const u8, url: ?[]const u8) bool {
+    for (cfg.run.trusted) |t| {
+        if (t.len == 0) continue;
+        if (std.mem.startsWith(u8, spec, t)) return true;
+        if (url) |u| if (std.mem.startsWith(u8, u, t)) return true;
+    }
+    return false;
+}
+
+test trusts {
+    const c: Config = .{ .run = .{ .trusted = &.{ "gh:me/", "https://github.com/myorg/" } } };
+    try std.testing.expect(trusts(c, "gh:me/app@v1", null));
+    try std.testing.expect(trusts(c, "github.com/myorg/tool", "https://github.com/myorg/tool"));
+    try std.testing.expect(!trusts(c, "gh:someone/app", "https://github.com/someone/app"));
+}
+
 /// Where a part of the config came from.
 pub const Origin = enum { user, source, env };
 
@@ -98,6 +119,7 @@ pub const Part = struct {
     run_delta: policy.Delta = .{},
     /// Where `run_policy` starts in its file, for errors.
     run_policy_line: usize = 0,
+    run_trusted: ?[]const []const u8 = null,
     pack_mount: ?[]const []const u8 = null,
     pack_targets: ?[]const types.Target = null,
     pack_all_targets: bool = false,
@@ -250,7 +272,10 @@ pub fn parsePart(arena: std.mem.Allocator, origin: Origin, path: []const u8, tex
                     };
                     p.run_policy = s;
                     p.run_policy_line = e.line;
-                } else return f.unknown("policy"),
+                } else if (eql(e.key, "trusted")) {
+                    if (origin != .user) return f.bad("only your own config, not a source's, can trust sources", .{});
+                    p.run_trusted = try f.strings();
+                } else return f.unknown("policy and trusted"),
                 .pack => if (eql(e.key, "mount")) {
                     const list = try f.strings();
                     for (list) |s| _ = parseMount(s) orelse return f.bad("{s}: want HOST:GUEST[:ro], with GUEST absolute", .{s});
@@ -375,6 +400,9 @@ pub fn fromEnv(
         try warnings.append(arena, "H9 is ignored: h9 is part of h9x now");
     if (env.get("H9_FLAGS") != null)
         try warnings.append(arena, "H9_FLAGS is ignored: use H9X_BACKEND for the backend, and h9x.toml for limits and policy");
+    // h9x's name while incubating.
+    for (env.keys()) |k| if (std.mem.startsWith(u8, k, "H9BUILD_"))
+        try warnings.append(arena, try std.fmt.allocPrint(arena, "{s} is ignored: h9build is h9x now, and its variables are H9X_*", .{k}));
     return p;
 }
 
@@ -414,6 +442,7 @@ pub fn merge(parts: []const Part) Config {
         if (p.secrets) |v| c.build.secrets = v;
         if (p.timeout_ns) |v| c.build.timeout_ns = v;
         if (p.run_policy) |v| c.run.policy = v;
+        if (p.run_trusted) |v| c.run.trusted = v;
         if (p.pack_mount) |v| c.pack.mount = v;
         if (p.pack_targets) |v| {
             c.pack.targets = v;

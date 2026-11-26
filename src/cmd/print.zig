@@ -216,7 +216,7 @@ fn runPolicy(
     var t = trust;
     if (req.command == .shell) {
         opts = .{ .argv = if (req.shell.argv.len > 0) req.shell.argv else &.{"/bin/sh"} };
-    } else if (opts.trust) t = .trusted;
+    } else t = run_cmd.trustFor(ctx, cfg, req.source, t == .untrusted, opts.trust);
     return run_cmd.policyFor(ctx, cfg, t, try session.runDelta(ctx.arena, base, layers, art.env, art.cwd), opts, art.start);
 }
 

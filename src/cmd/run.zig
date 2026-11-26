@@ -16,6 +16,7 @@ const config = @import("../config.zig");
 const cache = @import("../cache.zig");
 const machine = @import("../machine.zig");
 const session = @import("../session.zig");
+const source = @import("../source.zig");
 const input = @import("input.zig");
 const print = @import("print.zig");
 
@@ -26,13 +27,25 @@ pub fn run(ctx: *cli.Context, opts: cli.RunOptions) !u8 {
 
     const in = try input.resolve(ctx, opts.source);
     ctx.result_out = in.dir;
-    const trust: types.Trust = if (in.remote and !opts.trust) .untrusted else .trusted;
+    const trust = trustFor(ctx, in.cfg, opts.source, in.remote, opts.trust);
     const p = try policyFor(ctx, in.cfg, trust, try session.runDelta(ctx.arena, in.base, in.layers, in.art.env, in.art.cwd), opts, in.art.start);
     for (in.layers) |l| cache.touch(ctx.io, l.path);
     if (trust == .untrusted) ctx.events.log("running {s} untrusted: no host files, no network, and a 10m timeout unless flags say otherwise; h9's sandbox isn't audited", .{opts.source});
 
     const host = try hostFor(ctx);
     return session.interactive(ctx, host, p, null);
+}
+
+/// A run's trust: a remote source is untrusted unless `--trust` is given
+/// or the user's config trusts it (`[run] trusted`).
+pub fn trustFor(ctx: *cli.Context, cfg: config.Config, spec: []const u8, remote: bool, flag: bool) types.Trust {
+    if (!remote or flag) return .trusted;
+    const url: ?[]const u8 = switch (source.parse(ctx.arena, spec) catch return .untrusted) {
+        .dir => null,
+        .git => |g| g.url,
+        .tarball => |t| t.url,
+    };
+    return if (config.trusts(cfg, spec, url)) .trusted else .untrusted;
 }
 
 /// The run phase's policy for `machine_delta` (the stage's mounts, env,

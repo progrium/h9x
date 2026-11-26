@@ -6,7 +6,7 @@ created: 2026-11-25
 authors: [progrium]
 depends: []
 areas: [cli, build, sandbox, pack, export, cache, tests]
-branch: []
+branch: [claude/project-thread-xi9f71]
 ---
 
 # Proposal: The h9x prototype
@@ -466,3 +466,7 @@ Integration cases are in `tests/*.zig`, run by `zig build integration`, and unit
 - Whether the runner should check for a newer pack, or updating is the app's own job.
 - How PHP builds without FrankenPHP's image, and whether Java builds at all. Older Ruby needs h9 to finish ruby-build's source build.
 - Whether dev dependencies should be pruned by default, with Railpack's `RAILPACK_PRUNE_DEPS`.
+
+## Updates
+
+- 2026-11-26: `run`, `shell`, `plan`, `--print`, the library, and the integration cases are built on this branch. Refinements from the body: the library's `pack` and `exportOci` take a path rather than a writer, since `--target` writes one file per target; the library is `src/root.zig`, and the code the runner shares with `h9x` moved to `src/shared.zig`; `shell` mounts the source outside the stack and binds it over `/app` as a union, so edits land in the source and the rest goes to a scratch layer; the user's config trusts remote sources with `[run] trusted`, a list of URL prefixes; and the integration cases are in `tests/integration.zig`. The `--print` case checks a widening flag and variable, since a local source's `h9x.toml` may widen, and an untrusted source's widening line is a unit case in `config.zig`. The `--target` case packs the host's OS and the other OS of the host's architecture (Windows on amd64, macOS on arm64), since a target takes layers of its own architecture.

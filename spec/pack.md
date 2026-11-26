@@ -12,7 +12,7 @@ h9x export OUT.h9 --oci FILE                 # an OCI image layout, as a tar
 h9x export OUT.h9 --docker | docker load     # a docker save tarball
 ```
 
-NAME is the output directory's name without `.h9`. Until `h9x build` writes one, pack and export take a build's output directory (one with an `artifact.json`) and not a source.
+NAME is the output directory's name without `.h9`. Pack and export take a build's output directory (one with an `artifact.json`), or a SOURCE, which they build first as `h9x build` would.
 
 ## The tar
 

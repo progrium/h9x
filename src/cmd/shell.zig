@@ -46,7 +46,7 @@ fn runStage(ctx: *cli.Context, opts: cli.ShellOptions) !u8 {
     if (opts.keep != .no) return ctx.events.fail(error.Usage, "--keep is for the build stage: the run stage's writes are thrown away", .{});
     const in = try input.resolve(ctx, opts.source);
     ctx.result_out = in.dir;
-    const trust: types.Trust = if (in.remote) .untrusted else .trusted;
+    const trust = run_cmd.trustFor(ctx, in.cfg, opts.source, in.remote, false);
     const argv: []const []const u8 = if (opts.argv.len > 0) opts.argv else &.{"/bin/sh"};
     const p = try run_cmd.policyFor(ctx, in.cfg, trust, try session.runDelta(ctx.arena, in.base, in.layers, in.art.env, in.art.cwd), .{ .argv = argv }, in.art.start);
     return session.interactive(ctx, try run_cmd.hostFor(ctx), p, null);

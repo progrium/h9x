@@ -1,0 +1,46 @@
+References that don't resolve, in depends and superseded-by, and
+references by number, which must be slugs.
+
+error: design/a.md:7: depends on `nope`, which isn't a proposal
+error: design/a.md:7: depends on `99`; refer to proposals by slug
+error: design/c.md:7: depends on `40`; refer to proposals by slug (#40 is `b`)
+error: design/b.md:9: superseded by `gone`, which isn't a proposal
+
+-- design/a.md --
+---
+slug: a
+title: A
+status: draft
+created: 2026-11-03
+authors: [progrium]
+depends: [nope, 99]
+---
+-- design/b2.md --
+---
+slug: b2
+title: B2
+status: draft
+created: 2026-11-03
+authors: [progrium]
+depends: []
+---
+-- design/b.md --
+---
+issue: 40
+slug: b
+title: B
+status: superseded
+created: 2026-11-03
+authors: [progrium]
+depends: []
+superseded-by: gone
+---
+-- design/c.md --
+---
+slug: c
+title: C
+status: draft
+created: 2026-11-03
+authors: [progrium]
+depends: [40]
+---

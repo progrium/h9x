@@ -1,0 +1,25 @@
+Status rules: superseded without superseded-by, and superseded-by without
+the status.
+
+error: design/a.md: superseded, but `superseded-by` isn't set
+error: design/b.md:8: `superseded-by` is set, but the status is `draft`
+
+-- design/a.md --
+---
+slug: a
+title: A
+status: superseded
+created: 2026-11-03
+authors: [progrium]
+depends: []
+---
+-- design/b.md --
+---
+slug: b
+title: B
+status: draft
+created: 2026-11-03
+authors: [progrium]
+depends: []
+superseded-by: a
+---

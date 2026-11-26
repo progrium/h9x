@@ -1,0 +1,108 @@
+A valid tree: an implemented proposal on main, an accepted one being
+worked on in a branch, a proposed one with an issue, a draft with its
+Done criteria, a declined one, a superseded one, and links. No messages.
+
+-- .branches --
+oci-push 2
+claude/packs 1
+-- design/README.md --
+The process; not a proposal. See [oci-push](oci-push.md) and [the template](TEMPLATE.md).
+-- design/TEMPLATE.md --
+---
+slug: [slug]
+---
+-- design/design-process.md --
+---
+slug: design-process
+title: Proposal-driven design process
+status: implemented
+created: 2026-11-03
+authors: [progrium]
+depends: []
+areas: [process]
+branch: [main]
+---
+
+# Proposal: Proposal-driven design process
+
+## Done criteria
+
+- [x] It works.
+- [~] Waived: the slow demo never ran.
+-- design/oci-push.md --
+---
+issue: 12
+slug: oci-push
+title: Pushing images to a registry
+status: accepted
+created: 2026-11-04
+authors: [progrium]
+depends: [design-process]
+areas: [export]
+branch: [oci-push, claude/packs]
+---
+
+# Proposal: Pushing images to a registry
+
+## Done criteria
+
+Context for the list.
+
+- [x] One.
+  - A note under it.
+- [ ] Two.
+-- design/cache-share.md --
+---
+issue: 13
+slug: cache-share
+title: Sharing the cache
+status: proposed
+created: 2026-11-05
+authors: [progrium]
+depends: [oci-push]
+superseded-by:
+---
+
+# Proposal: Sharing the cache
+
+## Done criteria
+
+- [ ] Push one.
+-- design/verify.md --
+---
+slug: verify
+title: Verifying builds
+status: draft
+created: 2026-11-06
+authors: [progrium, taramk]
+depends: [cache-share]
+---
+-- design/brotli.md --
+---
+slug: brotli
+title: Brotli packs
+status: declined
+created: 2026-11-06
+authors: [progrium]
+depends: []
+---
+
+## Declined
+
+- 2026-11-07: zstd decompresses faster.
+-- design/old-cache.md --
+---
+slug: old-cache
+title: The old cache
+status: superseded
+created: 2026-11-06
+authors: [progrium]
+depends: []
+superseded-by: cache-share
+---
+-- spec/cache.md --
+# The cache
+
+See design/cache-share.md and [the push](../design/oci-push.md).
+-- src/main.zig --
+// oci-push (design/oci-push.md).

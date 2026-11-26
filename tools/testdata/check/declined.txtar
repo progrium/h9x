@@ -1,0 +1,35 @@
+Declined proposals need a `## Declined` section giving the reason: one
+with it passes, and one with only a `### Declined` heading fails.
+
+error: design/b.md: declined, but it has no `## Declined` section
+
+-- design/a.md --
+---
+slug: a
+title: A
+status: declined
+created: 2026-11-03
+authors: [progrium]
+depends: []
+---
+
+# Proposal: A
+
+## Declined
+
+- 2026-11-09: Not worth the cost.
+-- design/b.md --
+---
+slug: b
+title: B
+status: declined
+created: 2026-11-03
+authors: [progrium]
+depends: []
+---
+
+# Proposal: B
+
+### Declined
+
+Under the wrong heading.

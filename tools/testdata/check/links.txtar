@@ -1,0 +1,46 @@
+Links from Markdown files to files under design/ that don't exist: literal
+paths, and relative links resolved from the linking file. Paths inside a
+longer path or a URL, non-Markdown files, and testdata directories are
+left out, and a link to a directory that exists is fine.
+
+error: README.md:2: links to design/gone.md, which doesn't exist
+error: design/a.md:12: links to design/missing.md, which doesn't exist
+error: spec/x.md:1: links to design/nope.md, which doesn't exist
+error: spec/x.md:3: links to design/also-gone.md, which doesn't exist
+
+-- design/a.md --
+---
+slug: a
+title: A
+status: draft
+created: 2026-11-03
+authors: [progrium]
+depends: []
+---
+
+# Proposal: A
+
+See [b](b.md), [the README](README.md#flow), [the cache](../spec/x.md), and [missing](missing.md#top).
+-- design/b.md --
+---
+slug: b
+title: B
+status: draft
+created: 2026-11-03
+authors: [progrium]
+depends: []
+---
+-- design/README.md --
+The process.
+-- README.md --
+Proposals are design/<slug>.md files, and [the process](design/README.md) says how.
+The old plan was design/gone.md.
+See hyper9's [upper layers](https://github.com/progrium/hyper9/blob/main/design/upper-layers.md), not mydesign/x.md, and [the folder](design/).
+-- spec/x.md --
+As [b](../design/nope.md) says, and as design/a.md and design/b.md say.
+Written in `design/<slug>.md`.
+Then design/also-gone.md.
+-- src/x.zig --
+// hyper9's design/plan-format.md
+-- tools/testdata/check/x.md --
+design/old.md

@@ -70,10 +70,16 @@ fn run(init: std.process.Init, arena: std.mem.Allocator, io: Io, env: *const std
 
     // Extract once, after checking the seal.
     const hex = pack.digestHex(p.pack.digest);
-    const state = try cacheDir(arena, env);
+    const cwd_dir = Io.Dir.cwd();
+    // Its real path: h9 refuses a host path through a symlink, and on
+    // macOS a temporary HOME is under /var, which is one.
+    const state = s: {
+        const s = try cacheDir(arena, env);
+        try cwd_dir.createDirPath(io, s);
+        break :s cwd_dir.realPathFileAlloc(io, s, arena) catch s;
+    };
     const packs = try std.fs.path.join(arena, &.{ state, "packs" });
     const root = try std.fs.path.join(arena, &.{ packs, hex });
-    const cwd_dir = Io.Dir.cwd();
     const have = if (cwd_dir.access(io, try std.fs.path.join(arena, &.{ root, pack.json_path }), .{})) true else |_| false;
     if (!have) {
         if (!try pack.verify(io, file, p))

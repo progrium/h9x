@@ -100,7 +100,13 @@ pub const Env = struct {
             ctx.events.log("h9x builds on amd64 and arm64 hosts only", .{});
             return error.UnsupportedHost;
         };
-        const cache_dir = try cache.dir(ctx.arena, ctx.env);
+        // Its real path, since h9 refuses a host path through a symlink
+        // (macOS's /var and /tmp are).
+        const cache_dir = c: {
+            const c = try cache.dir(ctx.arena, ctx.env);
+            Dir.cwd().createDirPath(ctx.io, c) catch break :c c;
+            break :c Dir.cwd().realPathFileAlloc(ctx.io, c, ctx.arena) catch c;
+        };
         const host = machine.Host.init(ctx.arena, ctx.io, ctx.env, cache_dir) catch |e| switch (e) {
             error.BadBackend => {
                 ctx.events.log("H9X_BACKEND: not a backend h9 has", .{});

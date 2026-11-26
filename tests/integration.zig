@@ -104,6 +104,8 @@ fn examples() ![]const u8 {
 fn copy(name: []const u8, tag: []const u8) ![]const u8 {
     const parent = try std.fs.path.join(arena, &.{ work(), "cases", tag });
     const dst = try std.fs.path.join(arena, &.{ parent, name });
+    // Go's module cache in a build's output is read-only.
+    _ = try run(&.{ "chmod", "-R", "u+w", parent }, .{});
     try (try run(&.{ "rm", "-rf", parent }, .{})).ok();
     try Io.Dir.cwd().createDirPath(std.testing.io, parent);
     try (try run(&.{ "cp", "-R", try std.fs.path.join(arena, &.{ try examples(), name }), dst }, .{})).ok();

@@ -25,10 +25,18 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption([]const u8, "version", version);
 
+    // h9's CLI reads stdin for the console this way, cancellably: the
+    // runner, run, and shell do too.
+    const h9_stdin = b.createModule(.{
+        .root_source_file = h9.path("src/stdin.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // h9x-runner: h9, the pack reader, and the container lookup, through
-    // the `h9x` module (src/root.zig), with none of the builder.
+    // the `h9x` module (src/shared.zig), with none of the builder.
     const shared = b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/shared.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{.{ .name = "h9", .module = h9_mod }},
@@ -41,11 +49,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "h9", .module = h9_mod },
             .{ .name = "h9x", .module = shared },
             // h9's CLI reads stdin for the console this way, cancellably.
-            .{ .name = "h9_stdin", .module = b.createModule(.{
-                .root_source_file = h9.path("src/stdin.zig"),
-                .target = target,
-                .optimize = optimize,
-            }) },
+            .{ .name = "h9_stdin", .module = h9_stdin },
         },
     });
     const runner = b.addExecutable(.{ .name = "h9x-runner", .root_module = runner_mod });
@@ -60,12 +64,29 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "h9", .module = h9_mod }},
+        .imports = &.{
+            .{ .name = "h9", .module = h9_mod },
+            // run and shell read stdin for the guest's console as h9's CLI does.
+            .{ .name = "h9_stdin", .module = h9_stdin },
+        },
     });
-    mod.addOptions("build_options", options);
-    mod.addAnonymousImport("build_sh", .{ .root_source_file = b.path("guest/build.sh") });
-    mod.addAnonymousImport("roots_sh", .{ .root_source_file = b.path("guest/roots.sh") });
-    mod.addAnonymousImport("h9x_runner", .{ .root_source_file = runner.getEmittedBin() });
+    // The library (src/root.zig), for embedders: `b.dependency("h9x",
+    // ...).module("h9x")`. Same tree as the CLI, which is its client.
+    const lib = b.addModule("h9x", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "h9", .module = h9_mod },
+            .{ .name = "h9_stdin", .module = h9_stdin },
+        },
+    });
+    for ([_]*std.Build.Module{ mod, lib }) |m| {
+        m.addOptions("build_options", options);
+        m.addAnonymousImport("build_sh", .{ .root_source_file = b.path("guest/build.sh") });
+        m.addAnonymousImport("roots_sh", .{ .root_source_file = b.path("guest/roots.sh") });
+        m.addAnonymousImport("h9x_runner", .{ .root_source_file = runner.getEmittedBin() });
+    }
     const exe = b.addExecutable(.{ .name = "h9x", .root_module = mod });
     macos(b, exe, os);
 
@@ -118,7 +139,8 @@ pub fn build(b: *std.Build) void {
         .{ "fixture_macho", "aarch64-macos" },
         .{ "fixture_pe", "x86_64-windows-gnu" },
     };
-    for (fixtures) |f| {
+    var exe_fixtures: [2]*std.Build.Step.Compile = undefined;
+    for (fixtures, 0..) |f, i| {
         const fixture = b.addExecutable(.{ .name = f[0], .root_module = b.createModule(.{
             .root_source_file = b.path("src/exe/testdata/runner.zig"),
             .target = b.resolveTargetQuery(std.Target.Query.parse(.{ .arch_os_abi = f[1] }) catch unreachable),
@@ -126,6 +148,7 @@ pub fn build(b: *std.Build) void {
             .strip = true,
         }) });
         fixture.headerpad_size = macho_headerpad;
+        if (i > 0) exe_fixtures[i - 1] = fixture;
         exe_test_mod.addAnonymousImport(f[0], .{ .root_source_file = fixture.getEmittedBin() });
     }
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = exe_test_mod })).step);
@@ -142,6 +165,36 @@ pub fn build(b: *std.Build) void {
     macos(b, runner_test, os);
     // The runner is signed when it's joined, so the test runs it as is.
     test_step.dependOn(&b.addRunArtifact(runner_test).step);
+
+    // The integration cases (tests/integration.zig): the h9x built here,
+    // run on Railpack's examples. Slow and networked, so a step of their
+    // own.
+    const integration_step = b.step("integration", "Run the integration tests on Railpack's examples (slow; needs the network)");
+    const lib_example = b.addExecutable(.{ .name = "lib_example", .root_module = b.createModule(.{
+        .root_source_file = b.path("tests/lib_example.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "h9x", .module = lib }},
+    }) });
+    macos(b, lib_example, os);
+    const io_opts = b.addOptions();
+    io_opts.addOptionPath("h9x", exe.getEmittedBin());
+    io_opts.addOptionPath("h9", h9.artifact("h9").getEmittedBin());
+    io_opts.addOptionPath("lib_example", lib_example.getEmittedBin());
+    io_opts.addOptionPath("runner_pe", exe_fixtures[1].getEmittedBin());
+    io_opts.addOptionPath("runner_macho", exe_fixtures[0].getEmittedBin());
+    io_opts.addOption([]const u8, "work", b.option([]const u8, "integration-dir", "Where the integration tests copy and build examples (default: .zig-cache/integration)") orelse ".zig-cache/integration");
+    const integration_mod = b.createModule(.{
+        .root_source_file = b.path("tests/integration.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    integration_mod.addOptions("integration_options", io_opts);
+    const integration = b.addRunArtifact(b.addTest(.{ .root_module = integration_mod }));
+    integration.has_side_effects = true;
+    // A relative integration-dir is from the repository's root.
+    integration.setCwd(b.path("."));
+    integration_step.dependOn(&integration.step);
 
     // The design tool (design/README.md, The tool), run from the
     // repository root: zig build design -- <command>.

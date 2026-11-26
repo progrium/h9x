@@ -13,10 +13,14 @@
 # run either: h9x installs Wolfi packages for them into the roots.
 #
 # build.sh env runs no step, and writes the run environment to env.
+#
+# build.sh shell [CMD ARGS...] runs no step either: it sets up every step's
+# variables, PATH, and caches, then runs CMD (or sh) in /app, for h9x shell.
 set -eu
-W=/mnt/term/cwd
+W=${H9X_WORK:-/mnt/term/cwd}
 P=$W/plan.json
 layer=$1
+shift
 log() { echo "h9x: $*" >&2; }
 
 # mise, at the version Railpack pins (its builder image's tag), on PATH as
@@ -25,7 +29,7 @@ log() { echo "h9x: $*" >&2; }
 v=$(jq -r '[.steps[].inputs[]?.image // empty | capture("mise-(?<v>[0-9.]+)").v][0] // empty' "$P")
 mise=/h9x/tools/mise-$v
 [ -n "$v" ] && [ -x "$mise" ] || mise=$(ls /h9x/tools/mise-* 2>/dev/null | tail -1)
-[ -n "$mise" ] || { log "no mise in the tools; did plan.sh run?"; exit 1; }
+[ -n "$mise" ] || { log "no mise in the tools; did the plan phase run?"; exit 1; }
 mkdir -p /tmp/bin
 ln -sf "$mise" /tmp/bin/mise
 export PATH=/tmp/bin:/usr/local/bin:/usr/bin:/bin
@@ -224,6 +228,12 @@ EOF
 	packages:mise*) runtime_path ;;
 	esac
 done <"$W/steps.txt"
+
+if [ "$layer" = shell ]; then
+	cd /app
+	[ $# -gt 0 ] || set -- /bin/sh
+	exec "$@"
+fi
 
 [ "$layer" = env ] || exit 0
 

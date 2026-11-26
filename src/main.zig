@@ -74,7 +74,6 @@ pub fn main(init: std.process.Init) !u8 {
         out.interface.flush() catch {};
         // anyerror, so the switch stays valid as the commands' error sets grow.
         switch (@as(anyerror, e)) {
-            error.NotImplemented => emitter.log("{s} isn't implemented yet", .{name}),
             else => |x| emitter.log("{s}: {t}", .{ name, x }),
         }
         break :blk events.exitFor(e).code();
@@ -130,5 +129,8 @@ test {
     _ = @import("runners.zig");
     _ = @import("cmd/pack.zig");
     _ = @import("cmd/export.zig");
+    _ = @import("cmd/print.zig");
+    _ = @import("session.zig");
+    _ = @import("root.zig");
     _ = cmd;
 }

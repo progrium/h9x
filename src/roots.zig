@@ -100,7 +100,13 @@ pub const Env = struct {
             ctx.events.log("h9x builds on amd64 and arm64 hosts only", .{});
             return error.UnsupportedHost;
         };
-        const cache_dir = try cache.dir(ctx.arena, ctx.env);
+        // Its real path, since h9 refuses a host path through a symlink
+        // (macOS's /var and /tmp are).
+        const cache_dir = c: {
+            const c = try cache.dir(ctx.arena, ctx.env);
+            Dir.cwd().createDirPath(ctx.io, c) catch break :c c;
+            break :c Dir.cwd().realPathFileAlloc(ctx.io, c, ctx.arena) catch c;
+        };
         const host = machine.Host.init(ctx.arena, ctx.io, ctx.env, cache_dir) catch |e| switch (e) {
             error.BadBackend => {
                 ctx.events.log("H9X_BACKEND: not a backend h9 has", .{});
@@ -315,6 +321,21 @@ pub fn bootstrap(e: Env) !Bootstrap {
     cache.touch(io, dir);
     const key_file = try fetch(e, wolfi_key, "wolfi-signing.rsa.pub");
     return .{ .alpine = dir, .key_file = key_file };
+}
+
+/// Where Railpack's binary is or would be, without fetching it, for
+/// `--print`.
+pub fn railpackPath(e: Env) ![]const u8 {
+    if (e.cfg.railpack) |r| return r;
+    const name = try std.fmt.allocPrint(e.ctx.arena, "railpack-{s}-{s}", .{ railpack_version, e.arch.linuxName() });
+    return std.fs.path.join(e.ctx.arena, &.{ try e.path(.tools, name), "railpack" });
+}
+
+/// Where the guest scripts are or would be, without writing them, for
+/// `--print`.
+pub fn guestPath(e: Env) ![]const u8 {
+    const h = try shortHash(e.ctx.arena, embedded.build_sh);
+    return e.path(.tools, try std.fmt.allocPrint(e.ctx.arena, "guest-{s}", .{h}));
 }
 
 /// Railpack's binary: `H9X_RAILPACK`, or the pinned release in the tools.

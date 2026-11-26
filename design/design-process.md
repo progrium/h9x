@@ -13,12 +13,12 @@ branch: [main]
 
 ## Abstract
 
-Adopt taragen's proposal-driven design process, without its signatures: one Markdown proposal per design change in `design/`, the spec under `spec/` describing h9x as built, a small in-repo tool (`zig build design`) that validates and summarizes proposals, and a CI job that enforces the rules.
+Adopt a proposal-driven design process: one Markdown proposal per design change in `design/`, the spec under `spec/` describing h9x as built, a small in-repo tool (`zig build design`) that validates and summarizes proposals, and a CI job that enforces the rules.
 
 ## Background
 
 h9x's first design doc, the [prototype](prototype.md) proposal, already has proposal frontmatter and sections, and the spec has started under `spec/`, but nothing said how proposals are written, decided, or finished, and nothing checked them.
-taragen and hyper9 both use a process adapted from Go's. taragen's is the smaller of the two, and hyper9's has a Zig tool to start from.
+hyper9 uses a process adapted from Go's, with a Zig tool to start from.
 
 ## Proposal
 
@@ -33,9 +33,9 @@ Add the process described in the [design README](README.md):
 
 ## Rationale
 
-taragen's process rather than hyper9's: hyper9's adds a generated status index, issue-sync commands, epoch folders, test tags that gate integration cases, and signing by PR comment, which are more than a repository of h9x's size needs. `list`, `ready`, and `graph` show the same state on demand, and each piece can be added with its own proposal.
-Signatures were left out. taragen and hyper9 sign proposals and the spec with a dated line per reviewer, a `SIGNERS` file, a `sign` command, and a check on both. For h9x the authors list and the PR history record who directed a change, and the README's Review step asks for the same read-through without the ceremony.
-The tool is a trimmed port of hyper9's `tools/design.zig` rather than taragen's Go tool, so it builds with the toolchain h9x already needs and a PR that changes a rule changes the checker in the same diff.
+A smaller process than hyper9's: hyper9's adds a generated status index, issue-sync commands, epoch folders, test tags that gate integration cases, and signing by PR comment, which are more than a repository of h9x's size needs. `list`, `ready`, and `graph` show the same state on demand, and each piece can be added with its own proposal.
+Signatures were left out. hyper9 signs proposals and the spec with a dated line per reviewer, a `SIGNERS` file, a `sign` command, and a check on both. For h9x the authors list and the PR history record who directed a change, and the README's Review step asks for the same read-through without the ceremony.
+The tool is a trimmed port of hyper9's `tools/design.zig`, so it builds with the toolchain h9x already needs and a PR that changes a rule changes the checker in the same diff.
 A strict YAML subset instead of a YAML library keeps the parser small and makes `check` reject anything another parser could read differently. Storing only facts and computing state from git avoids an "in progress" status that goes stale.
 Milestones and a separate changelog were rejected: the dependency graph orders the work, and `log <slug>` reconstructs history from git. The prototype's workstream plan stays outside the repository for the same reason: it's an order of work, not a design.
 
@@ -58,6 +58,6 @@ None: the check job only reads the repository, and the tool writes only the file
 ## Implementation
 
 1. Add the README, the template, and this proposal.
-2. Port `tools/design.zig` from hyper9 without signatures, epochs, the status index, issue commands, and test tags, and match taragen's rules.
+2. Port `tools/design.zig` from hyper9 without signatures, epochs, the status index, issue commands, and test tags, and with the rules the README lists.
 3. Add the fixtures, the `design` build step, and the CI job.
 4. Add `AGENTS.md`.

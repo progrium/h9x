@@ -4,7 +4,7 @@ Changes to h9x's design go through proposals: one Markdown file per change in th
 The spec, the files under [spec/](../spec/), describes h9x as built. Proposals say what changes and why; the spec says what exists.
 The order of work comes from the dependency graph between proposals, not from milestones.
 
-This README is how h9x applies the workflow. It's adapted from taragen's and hyper9's, was adopted by the [design-process](design-process.md) proposal, and changes to it go through proposals too.
+This README is how h9x applies the workflow. It's adapted from hyper9's, was adopted by the [design-process](design-process.md) proposal, and changes to it go through proposals too.
 
 ## Principles
 

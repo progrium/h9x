@@ -3,6 +3,7 @@
 //!   zig build              h9x and h9x-runner, in zig-out/bin
 //!   zig build test         the unit tests
 //!   zig build run -- ARGS  h9x
+//!   zig build design -- C  the design tool (design/README.md)
 //!
 //! Both programs are one module tree on h9's library, the `h9` package in
 //! build.zig.zon. h9x embeds the host target's runner and the guest
@@ -141,6 +142,26 @@ pub fn build(b: *std.Build) void {
     macos(b, runner_test, os);
     // The runner is signed when it's joined, so the test runs it as is.
     test_step.dependOn(&b.addRunArtifact(runner_test).step);
+
+    // The design tool (design/README.md, The tool), run from the
+    // repository root: zig build design -- <command>.
+    const design_tool = b.addExecutable(.{
+        .name = "design",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/design.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    const run_design = b.addRunArtifact(design_tool);
+    run_design.setCwd(b.path("."));
+    run_design.has_side_effects = true;
+    run_design.stdio = .inherit;
+    run_design.addPassthruArgs();
+    b.step("design", "Run the design tool: zig build design -- <command> (help lists them)").dependOn(&run_design.step);
+    // Its tests read tools/testdata from the repository root.
+    const design_tests = b.addRunArtifact(b.addTest(.{ .root_module = design_tool.root_module }));
+    design_tests.setCwd(b.path("."));
+    test_step.dependOn(&design_tests.step);
 }
 
 /// Room after a Mach-O runner's load commands for the two pack adds.

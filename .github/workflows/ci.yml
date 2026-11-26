@@ -25,3 +25,15 @@ jobs:
           version: 0.17.1
       - run: zig build
       - run: zig build test
+
+  # The proposal rules (design/README.md), on every PR.
+  design:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The tips of every branch, so `check` can find each proposal's.
+      - run: git fetch -q --no-tags --depth=1 origin '+refs/heads/*:refs/remotes/origin/*'
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - run: zig build design -- check

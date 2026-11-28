@@ -22,6 +22,13 @@ pub const Status = h9.Status;
 /// member rooted under it.
 pub const guest_ca_dir = "/h9x/ca";
 pub const guest_ca_file = guest_ca_dir ++ "/ca.pem";
+/// Where the roots keep the system's CA bundle. The same copy is mounted
+/// over it read-only, for programs that ignore `SSL_CERT_FILE` or are
+/// started without it: Railpack runs mise with an environment of its own,
+/// so behind a TLS-intercepting proxy mise couldn't resolve a version,
+/// and Railpack wrote a plan with no steps. A bind, it never lands in a
+/// layer.
+pub const system_ca_dir = "/etc/ssl/certs";
 
 pub const Host = struct {
     /// For connections h9 makes itself.
@@ -92,6 +99,7 @@ pub const Host = struct {
         try mounts.appendSlice(arena, opts.mounts);
         if (h.ca_dir) |d| {
             try mounts.append(arena, .{ .kind = .dir, .src = d, .dst = "#L" ++ guest_ca_dir, .access = .ro });
+            try mounts.append(arena, .{ .kind = .dir, .src = d, .dst = "#L" ++ system_ca_dir, .access = .ro });
             for ([_][]const u8{ "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO" }) |n|
                 try env.append(arena, .{ .name = n, .value = guest_ca_file });
         }
@@ -157,8 +165,12 @@ fn copyCa(arena: std.mem.Allocator, io: std.Io, file: []const u8, state_dir: []c
     const hex = std.fmt.bytesToHex(digest[0..8], .lower);
     const dir = try std.fs.path.join(arena, &.{ state_dir, "ca", &hex });
     try cwd.createDirPath(io, dir);
-    const dst = try std.fs.path.join(arena, &.{ dir, "ca.pem" });
-    try cwd.writeFile(io, .{ .sub_path = dst, .data = pem });
+    // ca.pem for the variables, and the names the roots' own bundle has
+    // (Wolfi's and Alpine's /etc/ssl/certs), for `system_ca_dir`.
+    for ([_][]const u8{ "ca.pem", "ca-certificates.crt", "ca-bundle.crt" }) |name| {
+        const dst = try std.fs.path.join(arena, &.{ dir, name });
+        try cwd.writeFile(io, .{ .sub_path = dst, .data = pem });
+    }
     return dir;
 }
 
@@ -198,6 +210,7 @@ test "Host.options adds the proxy and CA" {
     try std.testing.expectEqualStrings("HTTPS_PROXY", o.env[1].name);
     try std.testing.expectEqualStrings(guest_ca_file, o.env[4].value);
     try std.testing.expectEqualStrings("#L/h9x/ca", o.mounts[0].dst);
+    try std.testing.expectEqualStrings("#L/etc/ssl/certs", o.mounts[1].dst);
     try std.testing.expectEqualStrings("1.1.1.1", o.nameservers[0]);
 }
 

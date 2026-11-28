@@ -12,7 +12,7 @@
 //!                      case builds, rather than all fourteen.
 //!   H9X_CACHE, H9X_BACKEND, H9X_RAILPACK, HTTPS_PROXY, SSL_CERT_FILE,
 //!   and mise's switches, passed to h9x as they are, so a warm cache is
-//!   reused. Builds should run on a hypervisor or the native backend.
+//!   reused. Builds should run on a hypervisor or the sud engine.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -405,8 +405,8 @@ test "pack writes the same tar twice, and h9 --archive runs it [prototype]" {
     try (try run(&.{ "h9x", "pack", out, "-o", b }, .{})).ok();
     try std.testing.expectEqualStrings(&(try sha256File(a)), &(try sha256File(b)));
     var env = try hostEnv();
-    const backend = env.get("H9X_BACKEND") orelse "auto";
-    const r = try run(&.{ opts.h9, "--backend", backend, "--archive", try std.fmt.allocPrint(arena, "{s}:#L", .{a}), "sh", "/.h9x/run" }, .{});
+    const engine = env.get("H9X_BACKEND") orelse "auto";
+    const r = try run(&.{ opts.h9, "--engine", engine, "--archive", try std.fmt.allocPrint(arena, "{s}:#L", .{a}), "sh", "/.h9x/run" }, .{});
     if (!r.has("Hello from Go")) return failed(r, "Hello from Go");
 }
 

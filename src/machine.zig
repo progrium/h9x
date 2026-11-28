@@ -4,7 +4,7 @@
 //!
 //! `Host` is what machines take from the host environment, read once per
 //! process: the proxy, the CA bundle, DNS servers, the socket directory,
-//! and the backend (`H9X_BACKEND`). `options` adds those to a machine's
+//! and the engine (`H9X_BACKEND`). `options` adds those to a machine's
 //! options, and `run` starts a machine, runs one program, and ends it.
 //!
 //! Policy is compiled into `h9.Machine.Options` by policy.zig; this file
@@ -33,7 +33,8 @@ pub const Host = struct {
     ca_dir: ?[]const u8 = null,
     nameservers: []const []const u8 = &.{},
     tmp_dir: []const u8 = h9.Machine.default_tmp_dir,
-    backend: h9.vmm.BackendKind = .auto,
+    /// h9's engine for every machine (h9's `--engine`).
+    engine: h9.engine.Choice = .auto,
 
     pub const InitError = error{ BadBackend, CaUnreadable, OutOfMemory };
 
@@ -55,7 +56,7 @@ pub const Host = struct {
         h.https_proxy = h.proxy.https;
         h.tmp_dir = env.get("TMPDIR") orelse h9.Machine.default_tmp_dir;
         if (env.get("H9X_BACKEND")) |b| {
-            h.backend = std.meta.stringToEnum(h9.vmm.BackendKind, b) orelse return error.BadBackend;
+            h.engine = std.meta.stringToEnum(h9.engine.Choice, b) orelse return error.BadBackend;
         }
         h.nameservers = try hostNameservers(arena, io);
         if (env.get("SSL_CERT_FILE")) |f| if (f.len > 0) {
@@ -69,10 +70,10 @@ pub const Host = struct {
 
     /// `opts` with the host's settings added: the proxy and CA variables in
     /// the guest's environment, the CA's mount, the DNS servers, the socket
-    /// directory, and the backend. The caller's env and mounts come first.
+    /// directory, and the engine. The caller's env and mounts come first.
     pub fn options(h: Host, arena: std.mem.Allocator, opts: Options) error{OutOfMemory}!Options {
         var o = opts;
-        o.backend = h.backend;
+        o.engine = h.engine;
         o.proxy = h.proxy;
         o.tmp_dir = h.tmp_dir;
         if (o.nameservers.len == 0) o.nameservers = h.nameservers;

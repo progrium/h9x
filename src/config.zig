@@ -399,7 +399,7 @@ pub fn fromEnv(
     if (env.get("H9") != null)
         try warnings.append(arena, "H9 is ignored: h9 is part of h9x now");
     if (env.get("H9_FLAGS") != null)
-        try warnings.append(arena, "H9_FLAGS is ignored: use H9X_BACKEND for the backend, and h9x.toml for limits and policy");
+        try warnings.append(arena, "H9_FLAGS is ignored: use H9X_BACKEND for the engine, and h9x.toml for limits and policy");
     // h9x's name while incubating.
     for (env.keys()) |k| if (std.mem.startsWith(u8, k, "H9BUILD_"))
         try warnings.append(arena, try std.fmt.allocPrint(arena, "{s} is ignored: h9build is h9x now, and its variables are H9X_*", .{k}));

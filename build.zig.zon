@@ -8,8 +8,8 @@
         // commit of hyper9's main. Bump with
         // zig fetch --save=h9 git+https://github.com/progrium/hyper9#COMMIT
         .h9 = .{
-            .url = "git+https://github.com/progrium/hyper9#446b57583c36605f5b81bb58558e13e5f88275cb",
-            .hash = "h9-0.0.0-jowMOojTwgAZYDC8N1_0xT1vR5T0oj0FcunSqtudkHd7",
+            .url = "git+https://github.com/progrium/hyper9#dc87e92b7dd0c17bf05c38c23f5bbd5a75810297",
+            .hash = "h9-0.0.0-jowMOt1twwCZHzMAW2UeDRIY8Fl9yGBtTER5PICuWPgE",
         },
     },
     .paths = .{

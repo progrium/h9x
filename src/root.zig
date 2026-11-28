@@ -63,7 +63,7 @@ pub const Builder = struct {
         /// `env`, or `${XDG_CACHE_HOME:-~/.cache}/h9x`.
         cache_dir: ?[]const u8 = null,
         machine: struct {
-            /// h9's backend for every machine, as `H9X_BACKEND` names it.
+            /// h9's engine for every machine, as `H9X_BACKEND` names it.
             backend: ?[]const u8 = null,
         } = .{},
         /// What h9x reads from the host's environment: the proxy and CA

@@ -4,7 +4,7 @@
 //!
 //! `Host` is what machines take from the host environment, read once per
 //! process: the proxy, the CA bundle, DNS servers, the socket directory,
-//! and the backend (`H9X_BACKEND`). `options` adds those to a machine's
+//! and the engine (`H9X_BACKEND`). `options` adds those to a machine's
 //! options, and `run` starts a machine, runs one program, and ends it.
 //!
 //! Policy is compiled into `h9.Machine.Options` by policy.zig; this file
@@ -22,6 +22,13 @@ pub const Status = h9.Status;
 /// member rooted under it.
 pub const guest_ca_dir = "/h9x/ca";
 pub const guest_ca_file = guest_ca_dir ++ "/ca.pem";
+/// Where the roots keep the system's CA bundle. The same copy is mounted
+/// over it read-only, for programs that ignore `SSL_CERT_FILE` or are
+/// started without it: Railpack runs mise with an environment of its own,
+/// so behind a TLS-intercepting proxy mise couldn't resolve a version,
+/// and Railpack wrote a plan with no steps. A bind, it never lands in a
+/// layer.
+pub const system_ca_dir = "/etc/ssl/certs";
 
 pub const Host = struct {
     /// For connections h9 makes itself.
@@ -33,7 +40,8 @@ pub const Host = struct {
     ca_dir: ?[]const u8 = null,
     nameservers: []const []const u8 = &.{},
     tmp_dir: []const u8 = h9.Machine.default_tmp_dir,
-    backend: h9.vmm.BackendKind = .auto,
+    /// h9's engine for every machine (h9's `--engine`).
+    engine: h9.engine.Choice = .auto,
 
     pub const InitError = error{ BadBackend, CaUnreadable, OutOfMemory };
 
@@ -55,7 +63,7 @@ pub const Host = struct {
         h.https_proxy = h.proxy.https;
         h.tmp_dir = env.get("TMPDIR") orelse h9.Machine.default_tmp_dir;
         if (env.get("H9X_BACKEND")) |b| {
-            h.backend = std.meta.stringToEnum(h9.vmm.BackendKind, b) orelse return error.BadBackend;
+            h.engine = std.meta.stringToEnum(h9.engine.Choice, b) orelse return error.BadBackend;
         }
         h.nameservers = try hostNameservers(arena, io);
         if (env.get("SSL_CERT_FILE")) |f| if (f.len > 0) {
@@ -69,10 +77,10 @@ pub const Host = struct {
 
     /// `opts` with the host's settings added: the proxy and CA variables in
     /// the guest's environment, the CA's mount, the DNS servers, the socket
-    /// directory, and the backend. The caller's env and mounts come first.
+    /// directory, and the engine. The caller's env and mounts come first.
     pub fn options(h: Host, arena: std.mem.Allocator, opts: Options) error{OutOfMemory}!Options {
         var o = opts;
-        o.backend = h.backend;
+        o.engine = h.engine;
         o.proxy = h.proxy;
         o.tmp_dir = h.tmp_dir;
         if (o.nameservers.len == 0) o.nameservers = h.nameservers;
@@ -91,6 +99,7 @@ pub const Host = struct {
         try mounts.appendSlice(arena, opts.mounts);
         if (h.ca_dir) |d| {
             try mounts.append(arena, .{ .kind = .dir, .src = d, .dst = "#L" ++ guest_ca_dir, .access = .ro });
+            try mounts.append(arena, .{ .kind = .dir, .src = d, .dst = "#L" ++ system_ca_dir, .access = .ro });
             for ([_][]const u8{ "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO" }) |n|
                 try env.append(arena, .{ .name = n, .value = guest_ca_file });
         }
@@ -156,8 +165,12 @@ fn copyCa(arena: std.mem.Allocator, io: std.Io, file: []const u8, state_dir: []c
     const hex = std.fmt.bytesToHex(digest[0..8], .lower);
     const dir = try std.fs.path.join(arena, &.{ state_dir, "ca", &hex });
     try cwd.createDirPath(io, dir);
-    const dst = try std.fs.path.join(arena, &.{ dir, "ca.pem" });
-    try cwd.writeFile(io, .{ .sub_path = dst, .data = pem });
+    // ca.pem for the variables, and the names the roots' own bundle has
+    // (Wolfi's and Alpine's /etc/ssl/certs), for `system_ca_dir`.
+    for ([_][]const u8{ "ca.pem", "ca-certificates.crt", "ca-bundle.crt" }) |name| {
+        const dst = try std.fs.path.join(arena, &.{ dir, name });
+        try cwd.writeFile(io, .{ .sub_path = dst, .data = pem });
+    }
     return dir;
 }
 
@@ -197,6 +210,7 @@ test "Host.options adds the proxy and CA" {
     try std.testing.expectEqualStrings("HTTPS_PROXY", o.env[1].name);
     try std.testing.expectEqualStrings(guest_ca_file, o.env[4].value);
     try std.testing.expectEqualStrings("#L/h9x/ca", o.mounts[0].dst);
+    try std.testing.expectEqualStrings("#L/etc/ssl/certs", o.mounts[1].dst);
     try std.testing.expectEqualStrings("1.1.1.1", o.nameservers[0]);
 }
 

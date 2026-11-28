@@ -127,7 +127,7 @@ fn run(init: std.process.Init, arena: std.mem.Allocator, io: Io, env: *const std
     opts.console_tty = (Io.File.stdin().isTty(io) catch false) and (Io.File.stdout().isTty(io) catch false);
 
     const host = machine.Host.init(arena, io, env, state) catch |e| switch (e) {
-        error.BadBackend => return fail(err, .usage, "H9X_BACKEND={s}: not a backend h9 has", .{env.get("H9X_BACKEND").?}),
+        error.BadBackend => return fail(err, .usage, "H9X_BACKEND={s}: not an engine h9 has", .{env.get("H9X_BACKEND").?}),
         else => |x| return x,
     };
 

@@ -125,14 +125,14 @@ From strongest to weakest: flags, then `H9X_*` variables, then the source's `h9x
 | Variable | Meaning |
 | --- | --- |
 | `H9X_CACHE` | The cache directory. Default `${XDG_CACHE_HOME:-~/.cache}/h9x` |
-| `H9X_BACKEND` | h9's backend for every machine: `auto`, `kvm`, `hvf`, `whp`, `native`, or `emulator` |
+| `H9X_BACKEND` | h9's engine for every machine (h9's `--engine`): `auto`, `kvm`, `hvf`, `whp`, `sud`, or `hcpu` |
 | `H9X_MEMORY` | `build.memory`; only narrows |
 | `H9X_BASE_PACKAGES`, `H9X_BUILD_PACKAGES` | `roots.base` and `roots.build`, space-separated |
 | `H9X_REPLAN=1` | `--replan` |
 | `H9X_RAILPACK` | A Railpack binary to plan with instead of the pinned release |
 | `H9X_RUBY_COMPILE=1` | Build Ruby from source rather than mise's precompiled builds |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | Used for h9x's downloads, and `HTTPS_PROXY` is passed into build machines, whose allowlist then includes it |
-| `SSL_CERT_FILE` | A CA bundle, copied into the cache and passed into machines as `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, and `GIT_SSL_CAINFO` |
+| `SSL_CERT_FILE` | A CA bundle, copied into the cache, passed into machines as `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, and `GIT_SSL_CAINFO`, and mounted read-only over the root's `/etc/ssl/certs` for programs that ignore those (mise, as Railpack runs it) |
 | `MISE_GITHUB_ATTESTATIONS`, `MISE_AQUA_COSIGN`, `MISE_AQUA_SLSA`, `MISE_AQUA_MINISIGN`, `MISE_AQUA_GITHUB_ATTESTATIONS` | Passed to build machines when set |
 
 `H9` and `H9_FLAGS`, from the proof of concept, and `H9BUILD_*`, from h9x's earlier name, are ignored with a warning. Machines never see the host's environment otherwise.

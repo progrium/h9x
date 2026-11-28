@@ -94,7 +94,7 @@ pub fn hostFor(ctx: *cli.Context) !machine.Host {
     const cache_dir = try cache.dir(ctx.arena, ctx.env);
     return machine.Host.init(ctx.arena, ctx.io, ctx.env, cache_dir) catch |e| switch (e) {
         error.BadBackend => {
-            ctx.events.log("H9X_BACKEND: not a backend h9 has", .{});
+            ctx.events.log("H9X_BACKEND: not an engine h9 has", .{});
             return error.BadBackend;
         },
         error.CaUnreadable => {
